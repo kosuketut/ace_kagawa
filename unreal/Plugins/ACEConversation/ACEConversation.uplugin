@@ -1,0 +1,19 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "ACE Conversation",
+  "Description": "WebSocket bridge scaffolding for the Linux RTX ACE sandbox.",
+  "Category": "AI",
+  "CreatedBy": "OpenAI Codex",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Modules": [
+    {
+      "Name": "ACEConversation",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}
+

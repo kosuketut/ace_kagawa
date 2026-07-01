@@ -1,0 +1,20 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.6",
+  "Category": "",
+  "Description": "Linux RTX Audio2Face + MetaHuman research sandbox",
+  "Modules": [
+    {
+      "Name": "ACEAvatarSandbox",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "ACEConversation",
+      "Enabled": true
+    }
+  ]
+}
+

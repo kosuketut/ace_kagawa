@@ -1,0 +1,23 @@
+[project]
+name = "ace-tts"
+version = "0.1.0"
+description = "Voice cloning workflow using authorized YouTube audio and sarashina2.2-tts."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "sarashina2-2-tts",
+  "yt-dlp>=2025.3.31",
+]
+
+[project.scripts]
+ace-tts = "ace_tts.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ace_tts"]
+
+[tool.uv.sources]
+sarashina2-2-tts = { git = "https://github.com/sbintuitions/sarashina2.2-tts.git" }

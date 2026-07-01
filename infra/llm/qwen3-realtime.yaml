@@ -1,0 +1,11 @@
+tensor_parallel_size: 2
+max_batch_size: 2
+max_num_tokens: 2048
+max_seq_len: 4096
+cuda_graph_config:
+  enable_padding: true
+  batch_sizes:
+    - 1
+    - 2
+kv_cache_config:
+  free_gpu_memory_fraction: 0.20

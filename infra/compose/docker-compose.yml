@@ -1,0 +1,49 @@
+services:
+  asr-nim:
+    image: ${ASR_NIM_IMAGE}
+    container_name: ace-asr-nim
+    restart: unless-stopped
+    runtime: nvidia
+    shm_size: "8gb"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+      NIM_CACHE_PATH: /opt/nim/.cache
+      NIM_TAGS_SELECTOR: ${ASR_NIM_TAGS_SELECTOR}
+      NVIDIA_VISIBLE_DEVICES: "1"
+    ports:
+      - "${ASR_GRPC_PORT}:50051"
+      - "${ASR_HTTP_PORT}:9000"
+    volumes:
+      - /home2/ko66/ace-sandbox/nim-cache/asr:/opt/nim/.cache
+      - /home2/ko66/ace-sandbox/logs/asr:/var/log/nim
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/v1/health/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  tts-nim:
+    image: ${TTS_NIM_IMAGE}
+    container_name: ace-tts-nim
+    restart: unless-stopped
+    runtime: nvidia
+    shm_size: "8gb"
+    environment:
+      NGC_API_KEY: ${NGC_API_KEY}
+      NIM_CACHE_PATH: /opt/nim/.cache
+      NIM_TAGS_SELECTOR: ${TTS_NIM_TAGS_SELECTOR}
+      NVIDIA_VISIBLE_DEVICES: "1"
+    ports:
+      - "${TTS_GRPC_PORT}:50051"
+      - "${TTS_HTTP_PORT}:9000"
+    volumes:
+      - /home2/ko66/ace-sandbox/nim-cache/tts:/opt/nim/.cache
+      - /home2/ko66/ace-sandbox/logs/tts:/var/log/nim
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/v1/health/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+

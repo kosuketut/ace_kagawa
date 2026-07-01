@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ace-orchestrator"
+version = "0.1.0"
+description = "Realtime half-duplex orchestrator for the Linux RTX ACE sandbox"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.0",
+  "starlette>=0.46.0,<1.0.0",
+  "uvicorn[standard]>=0.30.0",
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.3.0",
+  "webrtcvad-wheels>=2.0.14",
+  "nvidia-riva-client>=2.19.0",
+  "websockets>=12.0",
+]
+
+[tool.setuptools]
+packages = ["app", "app.adapters"]

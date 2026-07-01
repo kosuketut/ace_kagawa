@@ -1,0 +1,30 @@
+[Unit]
+Description=ACE Irodori-TTS HTTP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kyano
+Group=kyano
+WorkingDirectory=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS
+Environment=PYTHONPATH=/home/kyano/workspace/ACE/ace_kagawa:/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS
+Environment=HF_HOME=/data/ACE/irodori/hf-cache
+Environment=IRODORI_TTS_DATA_ROOT=/data/ACE/irodori
+Environment=IRODORI_TTS_HOST=0.0.0.0
+Environment=IRODORI_TTS_PORT=8021
+Environment=IRODORI_TTS_VOICE=kagawa
+Environment=IRODORI_TTS_MODEL_DEVICE=cuda:0
+Environment=IRODORI_TTS_CODEC_DEVICE=cuda:0
+Environment=IRODORI_TTS_MODEL_PRECISION=bf16
+Environment=IRODORI_TTS_NUM_STEPS=40
+Environment=IRODORI_TTS_DURATION_SCALE=1.0
+Environment=IRODORI_TTS_REFERENCE_SOURCE=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS/data/kagawa_voice.m4a
+Environment=IRODORI_TTS_REFERENCE_WAV=/data/ACE/irodori/reference/kagawa_voice_ref_48k_mono.wav
+Environment=CUDA_VISIBLE_DEVICES=0
+ExecStart=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS/.venv/bin/python /home/kyano/workspace/ACE/ace_kagawa/infra/tts/irodori_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
