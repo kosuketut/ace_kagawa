@@ -14,6 +14,10 @@ EXPECTED_LLM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 EXPECTED_LLM_MODEL = "stockmark/stockmark-2-100b-instruct"
 EXPECTED_RAG_SERVER_URL = "http://10.209.1.12:8081/v1"
 EXPECTED_RAG_COLLECTION = "ace_kagawa"
+EXPECTED_RAG_MAX_TOKENS = 128
+EXPECTED_RAG_VDB_TOP_K = 12
+EXPECTED_RAG_RERANKER_TOP_K = 5
+EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K = 10
 
 
 def load_module(name: str, path: Path):
@@ -77,7 +81,11 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(settings.server_url, EXPECTED_RAG_SERVER_URL)
         self.assertEqual(settings.collection_name, EXPECTED_RAG_COLLECTION)
         self.assertTrue(settings.use_knowledge_base)
-        self.assertEqual(settings.max_tokens, 1000)
+        self.assertEqual(settings.max_tokens, EXPECTED_RAG_MAX_TOKENS)
+        self.assertEqual(settings.vdb_top_k, EXPECTED_RAG_VDB_TOP_K)
+        self.assertEqual(settings.reranker_top_k, EXPECTED_RAG_RERANKER_TOP_K)
+        self.assertEqual(settings.multimodal_reranker_top_k, EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K)
+        self.assertTrue(settings.enable_reranker)
 
     def test_resolve_rag_settings_normalizes_url_and_bool_values(self) -> None:
         settings = prepare.resolve_rag_settings(
@@ -87,6 +95,10 @@ class TokkioLlmConfigTests(unittest.TestCase):
                 "TOKKIO_RAG_COLLECTION_NAME": "manuals",
                 "TOKKIO_RAG_USE_KNOWLEDGE_BASE": "false",
                 "TOKKIO_RAG_MAX_TOKENS": "512",
+                "TOKKIO_RAG_VDB_TOP_K": "16",
+                "TOKKIO_RAG_RERANKER_TOP_K": "6",
+                "TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K": "10",
+                "TOKKIO_RAG_ENABLE_RERANKER": "false",
             }
         )
 
@@ -95,6 +107,10 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(settings.collection_name, "manuals")
         self.assertFalse(settings.use_knowledge_base)
         self.assertEqual(settings.max_tokens, 512)
+        self.assertEqual(settings.vdb_top_k, 16)
+        self.assertEqual(settings.reranker_top_k, 6)
+        self.assertEqual(settings.multimodal_reranker_top_k, 10)
+        self.assertFalse(settings.enable_reranker)
 
     def test_custom_config_yaml_uses_stockmark_nim_endpoint_and_model(self) -> None:
         yaml_text = customize.build_config_yaml()
@@ -102,7 +118,11 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn(f'base_url: "{EXPECTED_LLM_BASE_URL}"', yaml_text)
         self.assertIn(f'model: "{EXPECTED_LLM_MODEL}"', yaml_text)
         self.assertIn("標準語で自然かつ簡潔", yaml_text)
-        self.assertIn("40から120文字", yaml_text)
+        self.assertIn("80文字以内", yaml_text)
+        self.assertIn("1から2文", yaml_text)
+        self.assertIn("time_delay: 6.0", yaml_text)
+        self.assertIn('- "確認しています"', yaml_text)
+        self.assertNotIn("少々お待ちください", yaml_text)
         self.assertIn('llm_processor: "NvidiaLLMService"', yaml_text)
 
     def test_custom_config_yaml_can_enable_rag_processor(self) -> None:
@@ -117,6 +137,10 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn(f'rag_server_url: "{EXPECTED_RAG_SERVER_URL}"', yaml_text)
         self.assertIn(f'collection_name: "{EXPECTED_RAG_COLLECTION}"', yaml_text)
         self.assertIn("max_tokens: 512", yaml_text)
+        self.assertIn(f"vdb_top_k: {EXPECTED_RAG_VDB_TOP_K}", yaml_text)
+        self.assertIn(f"reranker_top_k: {EXPECTED_RAG_RERANKER_TOP_K}", yaml_text)
+        self.assertIn(f"multimodal_reranker_top_k: {EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K}", yaml_text)
+        self.assertIn("enable_reranker: true", yaml_text)
 
     def test_custom_config_yaml_uses_standard_japanese_prompt(self) -> None:
         yaml_text = customize.build_config_yaml()
@@ -208,10 +232,38 @@ class TokkioLlmConfigTests(unittest.TestCase):
             self.assertIn(customize.NEW_LLM_SNIPPET, updated)
             self.assertNotIn("tensorrt_llm", updated)
 
+    def test_patch_rag_snippet_passes_top_k_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bot_path = Path(tmp) / "bot.py"
+            bot_path.write_text(customize.OLD_RAG_SNIPPET, encoding="utf-8")
+
+            customize.patch_rag_snippet(bot_path)
+
+            updated = bot_path.read_text(encoding="utf-8")
+            self.assertIn("vdb_top_k=config.NvidiaRAGService.vdb_top_k", updated)
+            self.assertIn("reranker_top_k=config.NvidiaRAGService.reranker_top_k", updated)
+            self.assertIn("multimodal_reranker_top_k=config.NvidiaRAGService.multimodal_reranker_top_k", updated)
+            self.assertIn("enable_reranker=config.NvidiaRAGService.enable_reranker", updated)
+
+    def test_patch_rag_snippet_updates_previous_top_k_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bot_path = Path(tmp) / "bot.py"
+            bot_path.write_text(customize.PREVIOUS_RAG_SNIPPET, encoding="utf-8")
+
+            customize.patch_rag_snippet(bot_path)
+
+            updated = bot_path.read_text(encoding="utf-8")
+            self.assertIn(customize.NEW_RAG_SNIPPET, updated)
+            self.assertIn("multimodal_reranker_top_k=config.NvidiaRAGService.multimodal_reranker_top_k", updated)
+
     def test_config_py_supports_irodori_tts_processor(self) -> None:
         self.assertIn('"IrodoriTTSService"', customize.CONFIG_PY)
         self.assertIn("class IrodoriTTSServiceConfig", customize.CONFIG_PY)
         self.assertIn("IrodoriTTSService: IrodoriTTSServiceConfig", customize.CONFIG_PY)
+        self.assertIn("vdb_top_k: int = 12", customize.CONFIG_PY)
+        self.assertIn("reranker_top_k: int = 5", customize.CONFIG_PY)
+        self.assertIn("multimodal_reranker_top_k: int = 10", customize.CONFIG_PY)
+        self.assertIn("enable_reranker: bool = True", customize.CONFIG_PY)
 
     def test_bot_snippet_builds_irodori_tts_service(self) -> None:
         self.assertIn("IrodoriTTSService", customize.NEW_BOT_SNIPPET)
@@ -263,6 +315,22 @@ class TokkioLlmConfigTests(unittest.TestCase):
                 '"collection_names": [self.collection_name]',
                 (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
             )
+            self.assertIn(
+                '"vdb_top_k": vdb_top_k',
+                (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                '"reranker_top_k": reranker_top_k',
+                (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                '"stop": self.stop_words or []',
+                (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "if self.filler and not first_chunk_received",
+                (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
+            )
 
     def test_apply_patch_can_enable_rag_in_profile_ace_controller_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -302,6 +370,11 @@ class TokkioLlmConfigTests(unittest.TestCase):
             self.assertIn('llm_processor: "NvidiaRAGService"', profile_config)
             self.assertIn(f'rag_server_url: "{EXPECTED_RAG_SERVER_URL}"', profile_config)
             self.assertIn(f'collection_name: "{EXPECTED_RAG_COLLECTION}"', profile_config)
+            self.assertIn(f"max_tokens: {EXPECTED_RAG_MAX_TOKENS}", profile_config)
+            self.assertIn(f"vdb_top_k: {EXPECTED_RAG_VDB_TOP_K}", profile_config)
+            self.assertIn(f"reranker_top_k: {EXPECTED_RAG_RERANKER_TOP_K}", profile_config)
+            self.assertIn(f"multimodal_reranker_top_k: {EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K}", profile_config)
+            self.assertIn("enable_reranker: true", profile_config)
 
     def test_build_config_yaml_accepts_custom_irodori_tts_url(self) -> None:
         yaml_text = customize.build_config_yaml(irodori_tts_base_url="http://192.0.2.10:8021")

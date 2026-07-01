@@ -1,7 +1,7 @@
 # ACE アプリケーション構築ガイド
 
 作成日: 2026-05-16  
-作業ディレクトリ: `/home/kyano/workspace/ACE`
+作業ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ## 1. このドキュメントの目的
 
@@ -10,7 +10,7 @@
 - ACE アプリケーションの全体像
 - NVIDIA ACE / Tokkio / ACE Agent / Audio2Face-3D / Animation Graph / Unreal Renderer / Riva / Speech NIM / LLM NIM などの関係
 - Kubernetes、Docker、NVIDIA GPU Operator、NVIDIA Container Toolkit がどの層を担当するか
-- このリポジトリ `/home/kyano/workspace/ACE` に既に存在する構成、スクリプト、ドキュメントとの対応
+- このリポジトリ `/home/kyano/workspace/ACE/ace_kagawa` に既に存在する構成、スクリプト、ドキュメントとの対応
 - ローカル検証、Tokkio 5.0 デプロイ、Unreal 直結サンドボックス、Speech NIM compose、TTS CLI の扱い
 - コピペ可能な確認・構築・デプロイ・トラブルシュート用コマンド
 - スクリーンショットや図を後から追加すべき場所
@@ -20,7 +20,7 @@
 | 区分 | 意味 |
 | --- | --- |
 | NVIDIA 公式 docs で確認できた事実 | NVIDIA 公式ドキュメントで確認した仕様、構成、前提条件、URL |
-| このリポジトリから読み取れる事実 | `/home/kyano/workspace/ACE` に存在する README、docs、scripts、services、unreal、tts から確認した内容 |
+| このリポジトリから読み取れる事実 | `/home/kyano/workspace/ACE/ace_kagawa` に存在する README、docs、scripts、services、unreal、tts から確認した内容 |
 | 一般的な構成としての推奨 | 公式情報と既存 repo を踏まえた設計・運用上の推奨。環境に合わせて調整が必要 |
 
 ## 2. 想定読者
@@ -30,7 +30,7 @@
 - NVIDIA ACE を使ったデジタルヒューマンアプリケーションをこれから構築する開発者
 - Docker や Kubernetes は聞いたことがあるが、GPU アプリケーションでどう使うかはまだ曖昧な人
 - NVIDIA Riva / NIM / Audio2Face / Tokkio の名前は知っているが、どれがどの役割か整理したい人
-- `/home/kyano/workspace/ACE` の既存 repo を引き継ぎ、Tokkio や Unreal サンドボックスを再構築したい人
+- `/home/kyano/workspace/ACE/ace_kagawa` の既存 repo を引き継ぎ、Tokkio や Unreal サンドボックスを再構築したい人
 - GPU ワークステーション上で、ローカル検証から Kubernetes デプロイまで一通り確認したい人
 
 前提知識として、Linux の基本操作、`bash`、`git`、Python 仮想環境、Docker の基礎があると読みやすいです。Kubernetes については初学者でも追えるように、用語から説明します。
@@ -343,7 +343,7 @@ NVIDIA 公式 docs で確認できた事実:
 
 ### 8.1 作業ディレクトリと repo 確認
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 pwd
@@ -372,7 +372,7 @@ unreal/README.md
 
 ### 8.2 基本ツール確認
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 uname -a
@@ -397,7 +397,7 @@ helm version
 - 依存には `fastapi`、`uvicorn[standard]`、`httpx`、`pydantic`、`webrtcvad-wheels`、`nvidia-riva-client`、`websockets` が含まれる。
 - mock mode として `ACE_MOCK_ASR=true`、`ACE_MOCK_LLM=true`、`ACE_MOCK_TTS=true` が用意されている。
 
-実行ディレクトリ: `/home/kyano/workspace/ACE/services/orchestrator`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa/services/orchestrator`
 
 ```bash
 python3 -m venv .venv
@@ -429,7 +429,7 @@ python3 tools/demo_client.py --url ws://127.0.0.1:8080/ws/session --mock-audio
 - `uv run ace-tts download-reference`、`synthesize`、`clone-from-youtube` の CLI がある。
 - 参照音声には話者・権利者の許諾が必要である。
 
-実行ディレクトリ: `/home/kyano/workspace/ACE/tts`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa/tts`
 
 ```bash
 uv sync
@@ -559,7 +559,7 @@ NVIDIA 公式 docs で確認できた事実:
 - compose では `runtime: nvidia`、`NVIDIA_VISIBLE_DEVICES: "1"`、`NIM_CACHE_PATH`、`NGC_API_KEY`、port mapping、healthcheck が使われている。
 - ASR は host の `50051/9000`、TTS は `50052/9001` を使う前提である。
 
-実行ディレクトリ: `/home/kyano/workspace/ACE/infra/compose`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa/infra/compose`
 
 ```bash
 cp .env.example .env
@@ -792,7 +792,7 @@ kubectl delete -f /tmp/gpu-test-pod.yaml
 
 - `infra/tokkio` は Tokkio 5.0 を controller 側から起動する補助物である。
 - Tokkio 本体はこの repo には含めず、NVIDIA 公式 `NVIDIA/ACE` repo を利用する。
-- `prepare_tokkio_workspace.py` は `.env` を読んで `/home/kyano/workspace/ACE/infra/tokkio/workspace` 配下を初期化し、one-click script 用 `my-config.env` を生成する。
+- `prepare_tokkio_workspace.py` は `.env` を読んで `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace` 配下を初期化し、one-click script 用 `my-config.env` を生成する。
 - `deploy_tokkio.sh` は `envbuild.sh` の `init-config`、`install`、`info`、`uninstall` を叩くラッパである。
 - `manage_tokkio.sh` は install 済み Tokkio 環境の `start`、`stop`、`status`、`restart`、`reapply`、`restart-controller`、`logs` をまとめる運用ラッパである。
 - `check_tokkio_endpoints.py` は UI/API/Grafana と `kubectl get pods -n app` の簡易確認を行う。
@@ -801,10 +801,10 @@ kubectl delete -f /tmp/gpu-test-pod.yaml
 主な directory:
 
 ```text
-/home/kyano/workspace/ACE/infra/tokkio
-/home/kyano/workspace/ACE/infra/tokkio/workspace
-/home/kyano/workspace/ACE/infra/tokkio/workspace/controller
-/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE
 ```
 
 ### 13.2 Unreal 直結サンドボックス
@@ -884,7 +884,7 @@ NVIDIA 公式 docs で確認できた事実:
 このリポジトリから読み取れる事実:
 
 - この repo の runbook では single workstation 構成として controller と app を同一 machine で扱った記録がある。
-- 検証済み workspace root は `/home/kyano/workspace/ACE/infra/tokkio/workspace` である。
+- 検証済み workspace root は `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace` である。
 - Tokkio branch/profile は `5.0.0-ga` / `tokkio-1stream` が使われている。
 
 必要な account / secret:
@@ -898,7 +898,7 @@ NVIDIA 公式 docs で確認できた事実:
 
 ### 15.2 repository-side config を作る
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 cp infra/tokkio/.env.example infra/tokkio/.env
@@ -911,9 +911,9 @@ $EDITOR infra/tokkio/.env
 TOKKIO_ACE_BRANCH=5.0.0-ga
 TOKKIO_PROFILE=tokkio-1stream
 
-TOKKIO_WORKSPACE_DIR=/home/kyano/workspace/ACE/infra/tokkio/workspace
-TOKKIO_ACE_REPO_DIR=/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE
-TOKKIO_CONTROLLER_DIR=/home/kyano/workspace/ACE/infra/tokkio/workspace/controller
+TOKKIO_WORKSPACE_DIR=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace
+TOKKIO_ACE_REPO_DIR=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE
+TOKKIO_CONTROLLER_DIR=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller
 
 TOKKIO_APP_HOST_IPV4_ADDR=<application-host-ip>
 TOKKIO_APP_HOST_SSH_USER=<ssh-user>
@@ -934,7 +934,7 @@ TOKKIO_ELEVENLABS_API_KEY=<your-elevenlabs-api-key-if-used>
 
 ### 15.3 workspace artifacts を生成する
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
@@ -943,31 +943,31 @@ python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
 期待される生成物:
 
 ```text
-/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
-/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml
 ```
 
 確認:
 
 ```bash
-ls -lah /home/kyano/workspace/ACE/infra/tokkio/workspace/controller
-ls -lah /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated
+ls -lah /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller
+ls -lah /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated
 ```
 
 ### 15.4 NVIDIA 公式 ACE repo を clone する
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
-git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE
+git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE
 ```
 
 既に存在する場合:
 
 ```bash
-git -C /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE status
-git -C /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE branch --show-current
-git -C /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE log -1 --oneline
+git -C /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE status
+git -C /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE branch --show-current
+git -C /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE log -1 --oneline
 ```
 
 注意:
@@ -977,7 +977,7 @@ git -C /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE log -1 --onel
 
 ### 15.5 controller config を初期化する
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 ./infra/tokkio/deploy_tokkio.sh init-config --env-file infra/tokkio/.env
@@ -986,13 +986,13 @@ git -C /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE log -1 --onel
 生成・確認対象:
 
 ```text
-/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml
+/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml
 ```
 
 編集:
 
 ```bash
-$EDITOR /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml
+$EDITOR /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml
 ```
 
 確認する項目:
@@ -1007,11 +1007,11 @@ $EDITOR /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-conf
 
 ### 15.6 NGC と Audio2Face-3D access を事前確認する
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 ```
 
 期待する結果:
@@ -1026,7 +1026,7 @@ python3 infra/tokkio/check_tokkio_ngc_access.py \
 
 ### 15.7 Tokkio を install する
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 ./infra/tokkio/deploy_tokkio.sh install --env-file infra/tokkio/.env
@@ -1042,7 +1042,7 @@ python3 infra/tokkio/check_tokkio_ngc_access.py \
 
 ### 16.1 Tokkio 初回デプロイ
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 cp infra/tokkio/.env.example infra/tokkio/.env
@@ -1050,13 +1050,13 @@ $EDITOR infra/tokkio/.env
 
 python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
 
-git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE
+git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE
 
 ./infra/tokkio/deploy_tokkio.sh init-config --env-file infra/tokkio/.env
-$EDITOR /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml
+$EDITOR /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml
 
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 
 ./infra/tokkio/deploy_tokkio.sh install --env-file infra/tokkio/.env
 ```
@@ -1067,9 +1067,9 @@ python3 infra/tokkio/check_tokkio_ngc_access.py \
 
 - `manage_tokkio.sh start` は `containerd`、`kubelet`、`nginx`、`coturn` を起動してから Pod と endpoint を確認する。
 - `stop` は非破壊停止で、app namespace の Deployment / StatefulSet を `replicas=0` へ落として GPU workload を静止する。
-- replica 数は `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/app-workload-replicas.tsv` に保存され、次の `start` で復元される。
+- replica 数は `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/app-workload-replicas.tsv` に保存され、次の `start` で復元される。
 
-実行ディレクトリ: `/home/kyano/workspace/ACE/infra/tokkio`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio`
 
 ```bash
 ./manage_tokkio.sh start --env-file .env
@@ -1132,7 +1132,7 @@ kubectl rollout status deployment -n app <deployment-name>
 - `check_tokkio_endpoints.py` は UI/API/Grafana と `kubectl get pods -n app` の簡易確認を行う。
 - 過去の single workstation 検証では、install output が API を `https` として示しても、実際の確認では `http://<app-ip>:30888` が必要な場合があった。
 
-実行ディレクトリ: `/home/kyano/workspace/ACE`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 
 ```bash
 python3 infra/tokkio/check_tokkio_endpoints.py \
@@ -1229,7 +1229,7 @@ kubectl logs -n app ace-controller-ace-controller-deployment-0 --tail=300 | grep
 
 ### 17.4 独自 orchestrator の mock 検証
 
-実行ディレクトリ: `/home/kyano/workspace/ACE/services/orchestrator`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa/services/orchestrator`
 
 ```bash
 source .venv/bin/activate
@@ -1253,7 +1253,7 @@ python3 -m unittest discover -s tests
 
 ### 17.5 Speech NIM compose 検証
 
-実行ディレクトリ: `/home/kyano/workspace/ACE/infra/compose`
+実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa/infra/compose`
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml ps
@@ -1419,11 +1419,11 @@ python3 infra/tokkio/check_tokkio_endpoints.py \
 画像メモ:
 
 - 内容: Unreal Engine 5.6 で `ACEAvatarSandbox.uproject` を開いた画面
-- 到達方法: Unreal Engine 5.6 で `/home/kyano/workspace/ACE/unreal/ACEAvatarSandbox/ACEAvatarSandbox.uproject` を開く
+- 到達方法: Unreal Engine 5.6 で `/home/kyano/workspace/ACE/ace_kagawa/unreal/ACEAvatarSandbox/ACEAvatarSandbox.uproject` を開く
 - 必要なコマンド:
 
 ```bash
-ls -lah /home/kyano/workspace/ACE/unreal/ACEAvatarSandbox/ACEAvatarSandbox.uproject
+ls -lah /home/kyano/workspace/ACE/ace_kagawa/unreal/ACEAvatarSandbox/ACEAvatarSandbox.uproject
 ```
 
 - Web サイト URL: なし
@@ -1441,7 +1441,7 @@ ls -lah /home/kyano/workspace/ACE/unreal/ACEAvatarSandbox/ACEAvatarSandbox.uproj
 - 必要なコマンド:
 
 ```bash
-cd /home/kyano/workspace/ACE/services/orchestrator
+cd /home/kyano/workspace/ACE/ace_kagawa/services/orchestrator
 source .venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8080
 curl -s http://127.0.0.1:8080/status
@@ -1503,7 +1503,7 @@ kubectl describe nodes | grep -A8 -B2 'nvidia.com/gpu'
 
 ```bash
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 
 kubectl get pods -n app | grep -i a2f
 kubectl describe pod -n app <a2f-pod-name>
@@ -1566,7 +1566,7 @@ python3 infra/tokkio/check_tokkio_endpoints.py \
 確認:
 
 ```bash
-cd /home/kyano/workspace/ACE/services/orchestrator
+cd /home/kyano/workspace/ACE/ace_kagawa/services/orchestrator
 source .venv/bin/activate
 curl -s http://127.0.0.1:8080/status
 python3 tools/demo_client.py --url ws://127.0.0.1:8080/ws/session --mock-audio
@@ -1575,7 +1575,7 @@ python3 tools/demo_client.py --url ws://127.0.0.1:8080/ws/session --mock-audio
 Speech NIM 側:
 
 ```bash
-cd /home/kyano/workspace/ACE/infra/compose
+cd /home/kyano/workspace/ACE/ace_kagawa/infra/compose
 docker compose --env-file .env -f docker-compose.yml ps
 python3 check_nim_stack.py --asr-http-url http://127.0.0.1:9000 --tts-http-url http://127.0.0.1:9001
 ```
@@ -1734,17 +1734,17 @@ NVIDIA 公式 docs で確認できた事実:
 
 ### 22.3 この repo 内
 
-- `/home/kyano/workspace/ACE/README.md`
-- `/home/kyano/workspace/ACE/docs/architecture/tokkio-reference-stack.md`
-- `/home/kyano/workspace/ACE/docs/architecture/ace-sandbox.md`
-- `/home/kyano/workspace/ACE/docs/operations/tokkio-rebuild-runbook.md`
-- `/home/kyano/workspace/ACE/docs/operations/tokkio-webui-startup-runbook.md`
-- `/home/kyano/workspace/ACE/docs/operations/tokkio-japanese-customization.md`
-- `/home/kyano/workspace/ACE/infra/tokkio/README.md`
-- `/home/kyano/workspace/ACE/infra/compose/README.md`
-- `/home/kyano/workspace/ACE/services/orchestrator/README.md`
-- `/home/kyano/workspace/ACE/unreal/README.md`
-- `/home/kyano/workspace/ACE/tts/README.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/README.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/docs/architecture/tokkio-reference-stack.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/docs/architecture/ace-sandbox.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-rebuild-runbook.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-webui-startup-runbook.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-japanese-customization.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/README.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/compose/README.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/services/orchestrator/README.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/unreal/README.md`
+- `/home/kyano/workspace/ACE/ace_kagawa/tts/README.md`
 
 ## 23. 用語集
 

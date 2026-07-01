@@ -60,6 +60,11 @@ RAG を使う場合は、先に host 側で NVIDIA RAG Blueprint を起動しま
 TOKKIO_RAG_ENABLED=true
 TOKKIO_RAG_SERVER_URL=http://10.209.1.12:8081/v1
 TOKKIO_RAG_COLLECTION_NAME=ace_kagawa
+TOKKIO_RAG_MAX_TOKENS=128
+TOKKIO_RAG_VDB_TOP_K=12
+TOKKIO_RAG_RERANKER_TOP_K=5
+TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K=10
+TOKKIO_RAG_ENABLE_RERANKER=true
 TOKKIO_RAG_HEALTH_URL=http://127.0.0.1:8081/v1/health?check_dependencies=true
 ```
 
@@ -158,4 +163,4 @@ python3 infra/tokkio/customize_tokkio_japanese.py \
 
 通常は個別実行は不要で、`./manage_tokkio.sh start --env-file .env` または `./manage_tokkio.sh reapply --env-file .env` の前に `prepare_tokkio_workspace.py` が自動で同じパッチを当てます。
 
-詳細な手順と前提は [`docs/operations/tokkio-japanese-customization.md`](/home/kyano/workspace/ACE/docs/operations/tokkio-japanese-customization.md) を参照してください。
+詳細な手順と前提は [`docs/operations/tokkio-japanese-customization.md`](/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-japanese-customization.md) を参照してください。

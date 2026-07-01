@@ -1,6 +1,6 @@
 # Linux RTX Audio2Face Sandbox Architecture
 
-`Tokkio` を主経路にする場合は [tokkio-reference-stack.md](/home/kyano/workspace/ACE/docs/architecture/tokkio-reference-stack.md) を参照してください。この文書は Unreal 直結の研究サンドボックス用です。
+`Tokkio` を主経路にする場合は [tokkio-reference-stack.md](/home/kyano/workspace/ACE/ace_kagawa/docs/architecture/tokkio-reference-stack.md) を参照してください。この文書は Unreal 直結の研究サンドボックス用です。
 
 ## Goal
 

@@ -17,14 +17,14 @@
 - 初回のフル再構築
 - Tokkio 未導入状態からの新規構築
 
-初回構築や完全再構築が必要な場合は、[tokkio-rebuild-runbook.md](/home/kyano/workspace/ACE/docs/operations/tokkio-rebuild-runbook.md:1) を参照してください。
+初回構築や完全再構築が必要な場合は、[tokkio-rebuild-runbook.md](/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-rebuild-runbook.md:1) を参照してください。
 
 ## 2. 対象環境
 
-- 作業ディレクトリ: `/home/kyano/workspace/ACE`
+- 作業ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`
 - Tokkio 以外の大きなデータ・生成物・キャッシュ: `/home2/ko66`
-- Tokkio workspace: `/home/kyano/workspace/ACE/infra/tokkio/workspace`
-- 公式 ACE repo: `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE`
+- Tokkio workspace: `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace`
+- 公式 ACE repo: `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE`
 - branch: `5.0.0-ga`
 - profile: `tokkio-1stream`
 - 単一ワークステーション構成
@@ -53,8 +53,8 @@
 - `infra/tokkio/check_tokkio_endpoints.py`
 - `infra/tokkio/deploy_tokkio.sh`
 - `infra/tokkio/manage_tokkio.sh`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml`
 
 ## 4. 起動の全体像
 
@@ -105,7 +105,7 @@
 - `start` は既存インストール済み環境の復帰用で、`deploy_tokkio.sh install` は自動実行しません
 - `stop` は非破壊停止のみで、Kubernetes リソースや永続データは消しません
 - `stop` は host 側サービス停止の前に `app` namespace の `Deployment` / `StatefulSet` を `replicas=0` に落とし、GPU を使う Tokkio workload を静止します
-- `start` は退避済み replica 数があれば `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/app-workload-replicas.tsv` から復元します
+- `start` は退避済み replica 数があれば `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/app-workload-replicas.tsv` から復元します
 - このホストが Tokkio 専用ワークステーションに近い前提で `containerd` と `kubelet` も停止します
 
 ### 5.1 手動でホスト側サービスを起動する場合
@@ -264,7 +264,7 @@ python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
 
 ```bash
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 ```
 
 ### 7.3 Tokkio app を再適用
@@ -354,7 +354,7 @@ kubectl logs -n app ace-controller-ace-controller-deployment-0 --tail=200
 kubectl describe pod -n app <pod>
 
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 ```
 
 対処:
@@ -393,7 +393,7 @@ kubectl logs -n app ace-controller-ace-controller-deployment-0 --tail=200
 
 対処:
 
-1. `/home/kyano/workspace/ACE/infra/tokkio/.env` の `TOKKIO_ELEVENLABS_API_KEY` を更新
+1. `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/.env` の `TOKKIO_ELEVENLABS_API_KEY` を更新
 2. generated env を再生成
 3. Tokkio app を再適用
 4. `ace-controller` Pod を再起動
@@ -470,7 +470,7 @@ python3 infra/tokkio/check_tokkio_endpoints.py \
 
 ```bash
 ./infra/tokkio/manage_tokkio.sh reapply --env-file infra/tokkio/.env
-python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 ./infra/tokkio/manage_tokkio.sh restart-controller --env-file infra/tokkio/.env
 ```
 
@@ -480,6 +480,6 @@ python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace
 kubectl get pods -n app
 kubectl describe pod -n app <pod>
 kubectl logs -n app ace-controller-ace-controller-deployment-0 --tail=200
-python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 python3 infra/tokkio/check_tokkio_endpoints.py --insecure --kubectl --ui-url https://10.209.1.12:30111 --api-url http://10.209.1.12:30888 --grafana-url http://10.209.1.12:32300
 ```

@@ -22,6 +22,10 @@ DEFAULT_IRODORI_TTS_SERVICE = "ace-irodori-tts.service"
 DEFAULT_RAG_PORT = "8081"
 DEFAULT_RAG_COLLECTION_NAME = "ace_kagawa"
 DEFAULT_RAG_SUFFIX_PROMPT = "日本語で簡潔に答えてください。"
+DEFAULT_RAG_MAX_TOKENS = 128
+DEFAULT_RAG_VDB_TOP_K = 12
+DEFAULT_RAG_RERANKER_TOP_K = 5
+DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K = 10
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,10 @@ class RagSettings:
     collection_name: str
     use_knowledge_base: bool
     max_tokens: int
+    vdb_top_k: int
+    reranker_top_k: int
+    multimodal_reranker_top_k: int
+    enable_reranker: bool
     suffix_prompt: str
 
 
@@ -167,7 +175,15 @@ def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
         server_url=normalize_rag_server_url(server_url),
         collection_name=collection_name,
         use_knowledge_base=is_enabled(values, "TOKKIO_RAG_USE_KNOWLEDGE_BASE", default=True),
-        max_tokens=parse_positive_int(values, "TOKKIO_RAG_MAX_TOKENS", 1000),
+        max_tokens=parse_positive_int(values, "TOKKIO_RAG_MAX_TOKENS", DEFAULT_RAG_MAX_TOKENS),
+        vdb_top_k=parse_positive_int(values, "TOKKIO_RAG_VDB_TOP_K", DEFAULT_RAG_VDB_TOP_K),
+        reranker_top_k=parse_positive_int(values, "TOKKIO_RAG_RERANKER_TOP_K", DEFAULT_RAG_RERANKER_TOP_K),
+        multimodal_reranker_top_k=parse_positive_int(
+            values,
+            "TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K",
+            DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K,
+        ),
+        enable_reranker=is_enabled(values, "TOKKIO_RAG_ENABLE_RERANKER", default=True),
         suffix_prompt=values.get("TOKKIO_RAG_SUFFIX_PROMPT", "").strip() or DEFAULT_RAG_SUFFIX_PROMPT,
     )
 
@@ -255,6 +271,14 @@ def maybe_apply_japanese_customization(
             "true" if rag_settings.use_knowledge_base else "false",
             "--rag-max-tokens",
             str(rag_settings.max_tokens),
+            "--rag-vdb-top-k",
+            str(rag_settings.vdb_top_k),
+            "--rag-reranker-top-k",
+            str(rag_settings.reranker_top_k),
+            "--rag-multimodal-reranker-top-k",
+            str(rag_settings.multimodal_reranker_top_k),
+            "--rag-enable-reranker",
+            "true" if rag_settings.enable_reranker else "false",
             "--rag-suffix-prompt",
             rag_settings.suffix_prompt,
         ],
@@ -330,6 +354,10 @@ def main() -> int:
             "collection_name": rag_settings.collection_name,
             "use_knowledge_base": rag_settings.use_knowledge_base,
             "max_tokens": rag_settings.max_tokens,
+            "vdb_top_k": rag_settings.vdb_top_k,
+            "reranker_top_k": rag_settings.reranker_top_k,
+            "multimodal_reranker_top_k": rag_settings.multimodal_reranker_top_k,
+            "enable_reranker": rag_settings.enable_reranker,
         },
     }
     (generated_dir / "manifest.json").write_text(

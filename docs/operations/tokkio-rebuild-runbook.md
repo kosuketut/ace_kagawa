@@ -17,11 +17,11 @@ This document does not contain any live secrets. Replace placeholders such as `<
 
 ## 2. Target Environment
 
-- Working repository: `/home/kyano/workspace/ACE`
+- Working repository: `/home/kyano/workspace/ACE/ace_kagawa`
 - Large non-Tokkio data, generated artifacts, caches, and logs: `/home2/ko66`
-- Tokkio workspace root: `/home/kyano/workspace/ACE/infra/tokkio/workspace`
-- Official ACE repo clone: `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE`
-- Generated controller env: `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env`
+- Tokkio workspace root: `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace`
+- Official ACE repo clone: `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE`
+- Generated controller env: `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env`
 - Tokkio branch/profile used here:
   - branch: `5.0.0-ga`
   - profile: `tokkio-1stream`
@@ -41,27 +41,27 @@ Assumptions:
 
 Repository-side files:
 
-- `/home/kyano/workspace/ACE/infra/tokkio/.env`
-- `/home/kyano/workspace/ACE/infra/tokkio/.env.example`
-- `/home/kyano/workspace/ACE/infra/tokkio/prepare_tokkio_workspace.py`
-- `/home/kyano/workspace/ACE/infra/tokkio/check_tokkio_ngc_access.py`
-- `/home/kyano/workspace/ACE/infra/tokkio/check_tokkio_endpoints.py`
-- `/home/kyano/workspace/ACE/infra/tokkio/deploy_tokkio.sh`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/.env`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/.env.example`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/prepare_tokkio_workspace.py`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/check_tokkio_ngc_access.py`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/check_tokkio_endpoints.py`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/deploy_tokkio.sh`
 
 Runtime-side files and directories:
 
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE/`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE/workflows/tokkio/5.0.0-ga/scripts/one-click/baremetal/`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE/`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE/workflows/tokkio/5.0.0-ga/scripts/one-click/baremetal/`
 
 Operational rule:
 
 - keep non-Tokkio heavy assets, model pulls, logs, and caches under `/home2/ko66`
-- keep the Tokkio controller workspace and NVIDIA/ACE clone under `/home/kyano/workspace/ACE/infra/tokkio/workspace`
-- keep only lightweight source/config in the repo under `/home/kyano/workspace/ACE`
+- keep the Tokkio controller workspace and NVIDIA/ACE clone under `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace`
+- keep only lightweight source/config in the repo under `/home/kyano/workspace/ACE/ace_kagawa`
 
 ## 4. Required Secrets and Accounts
 
@@ -85,8 +85,8 @@ Required values for `infra/tokkio/.env`:
 
 Important notes:
 
-- The correct reflection point for the ElevenLabs key is `/home/kyano/workspace/ACE/infra/tokkio/.env` via `TOKKIO_ELEVENLABS_API_KEY`.
-- `prepare_tokkio_workspace.py` generates `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env`.
+- The correct reflection point for the ElevenLabs key is `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/.env` via `TOKKIO_ELEVENLABS_API_KEY`.
+- `prepare_tokkio_workspace.py` generates `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env`.
 - This repo’s helper fills an OpenAI placeholder when `TOKKIO_OPENAI_API_KEY` is empty, to satisfy Tokkio 5.0 secret validation while still using `NvidiaLLMService`.
 
 ## 5. Verified Working Architecture
@@ -122,7 +122,7 @@ Inference:
 
 ### 6.1 Prepare repository-side config
 
-From `/home/kyano/workspace/ACE`:
+From `/home/kyano/workspace/ACE/ace_kagawa`:
 
 ```bash
 cp infra/tokkio/.env.example infra/tokkio/.env
@@ -134,9 +134,9 @@ Edit `infra/tokkio/.env` and set at minimum:
 TOKKIO_ACE_BRANCH=5.0.0-ga
 TOKKIO_PROFILE=tokkio-1stream
 
-TOKKIO_WORKSPACE_DIR=/home/kyano/workspace/ACE/infra/tokkio/workspace
-TOKKIO_ACE_REPO_DIR=/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE
-TOKKIO_CONTROLLER_DIR=/home/kyano/workspace/ACE/infra/tokkio/workspace/controller
+TOKKIO_WORKSPACE_DIR=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace
+TOKKIO_ACE_REPO_DIR=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE
+TOKKIO_CONTROLLER_DIR=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller
 
 TOKKIO_ENV_FILE_NAME=my-config.env
 TOKKIO_CONFIG_FILE_NAME=ace-app-config.yml
@@ -160,13 +160,13 @@ python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
 
 Expected outputs:
 
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml`
 
 ### 6.3 Clone the official repo
 
 ```bash
-git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE
+git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE
 ```
 
 ### 6.4 Initialize controller config from the official workflow
@@ -177,7 +177,7 @@ git clone https://github.com/NVIDIA/ACE.git /home/kyano/workspace/ACE/infra/tokk
 
 Review and adjust:
 
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml`
 
 Minimum items to confirm:
 
@@ -192,7 +192,7 @@ Run the helper before install:
 
 ```bash
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 ```
 
 Required result:
@@ -210,7 +210,7 @@ If the A2F check returns `412 Precondition Failed` with a browser-license messag
 
 During this project, the effective one-click workflow root was:
 
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE/workflows/tokkio/5.0.0-ga/scripts/one-click/baremetal`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE/workflows/tokkio/5.0.0-ga/scripts/one-click/baremetal`
 
 ### 6.7 Watch Kubernetes state
 
@@ -340,7 +340,7 @@ How to confirm:
 kubectl describe pod -n app <pod>
 
 python3 infra/tokkio/check_tokkio_ngc_access.py \
-  --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+  --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 ```
 
 Expected failing sign:
@@ -379,7 +379,7 @@ Remediation:
 
 1. Update the correct source of truth:
 
-- `/home/kyano/workspace/ACE/infra/tokkio/.env`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/.env`
 - set `TOKKIO_ELEVENLABS_API_KEY=<YOUR_VALID_KEY>`
 
 2. Regenerate controller env and reinstall:
@@ -465,10 +465,10 @@ Inference:
 
 - Populate `infra/tokkio/.env` with host addresses and secrets.
 - Run `python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env`.
-- Clone `NVIDIA/ACE` into `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE`.
+- Clone `NVIDIA/ACE` into `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE`.
 - Run `./infra/tokkio/deploy_tokkio.sh init-config --env-file infra/tokkio/.env`.
-- Review `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller/ace-app-config.yml`.
-- Run `python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env`.
+- Review `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/ace-app-config.yml`.
+- Run `python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env`.
 - Accept the `Audio2Face-3D` NIM license in browser if the helper reports A2F entitlement failure.
 - Run `./infra/tokkio/deploy_tokkio.sh install --env-file infra/tokkio/.env`.
 - Run `python3 infra/tokkio/check_tokkio_endpoints.py --insecure --kubectl --ui-url https://10.209.1.12:30111 --api-url http://10.209.1.12:30888 --grafana-url http://10.209.1.12:32300`.
@@ -481,6 +481,6 @@ Inference:
 kubectl get pods -n app
 kubectl describe pod -n app <pod>
 kubectl logs -n app ace-controller-ace-controller-deployment-0 --tail=200
-python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/infra/tokkio/workspace/controller/generated/my-config.env
+python3 infra/tokkio/check_tokkio_ngc_access.py --env-file /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/my-config.env
 python3 infra/tokkio/check_tokkio_endpoints.py --insecure --kubectl --ui-url https://10.209.1.12:30111 --api-url http://10.209.1.12:30888 --grafana-url http://10.209.1.12:32300
 ```

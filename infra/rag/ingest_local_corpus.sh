@@ -89,7 +89,10 @@ upload_file() {
 
   for attempt in $(seq 1 "${POLL_ATTEMPTS}"); do
     status_response="$(curl -fsS "${INGESTOR_URL%/}/v1/status?task_id=${task_id}")"
-    status="$(printf '%s' "${status_response}" | json_field status)"
+    status="$(printf '%s' "${status_response}" | json_field state)"
+    if [[ -z "${status}" ]]; then
+      status="$(printf '%s' "${status_response}" | json_field status)"
+    fi
     case "${status}" in
       FINISHED|finished|completed|COMPLETED)
         info "Ingest finished for ${file}"

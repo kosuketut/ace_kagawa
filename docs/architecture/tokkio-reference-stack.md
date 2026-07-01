@@ -32,7 +32,7 @@ NVIDIA 公式ドキュメントで押さえるべき主な前提は以下です�
 - `infra/tokkio`
   - controller 側 `.env` 雛形
   - `my-config.env` 自動生成
-  - `/home/kyano/workspace/ACE/infra/tokkio/workspace` 配下の永続領域準備
+  - `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace` 配下の永続領域準備
   - `envbuild.sh` 呼び出しラッパ
   - UI/API/Grafana/Kubernetes の簡易疎通確認
 - `docs/architecture`
@@ -44,9 +44,9 @@ NVIDIA 公式ドキュメントで押さえるべき主な前提は以下です�
 
 重量物は Git 管理に入れず、以下に寄せます。Tokkio の controller state と公式 clone は repo 配下の ignored workspace に置きます。
 
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/controller`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/logs`
-- `/home/kyano/workspace/ACE/infra/tokkio/workspace/state`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/logs`
+- `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/state`
 - `/home2/ko66/ace-sandbox/nim-cache`
 - `/home2/ko66/ace-sandbox/docker`
 
@@ -54,7 +54,7 @@ NVIDIA 公式ドキュメントで押さえるべき主な前提は以下です�
 
 1. `infra/tokkio/.env.example` を `infra/tokkio/.env` にコピーする
 2. `prepare_tokkio_workspace.py` で controller 用 `my-config.env` を生成する
-3. `NVIDIA/ACE` repo を `/home/kyano/workspace/ACE/infra/tokkio/workspace/NVIDIA-ACE` に clone する
+3. `NVIDIA/ACE` repo を `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE` に clone する
 4. `deploy_tokkio.sh init-config` で公式 `config-template.yml` を controller ディレクトリへ退避する
 5. `ace-app-config.yml` を編集して、必要な avatar / workflow / endpoint を確定する
 6. `deploy_tokkio.sh install` で one-click deployment を実行する

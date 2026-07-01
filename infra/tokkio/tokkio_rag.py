@@ -28,15 +28,17 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
         self,
         collection_name: str,
         filler: list[str],
-        time_delay: float = 1.0,
+        time_delay: float = 6.0,
         rag_server_url: str = "http://localhost:8081/v1",
         stop_words: list | None = None,
         temperature: float = 0.2,
         top_p: float = 0.7,
-        max_tokens: int = 200,
+        max_tokens: int = 128,
         use_knowledge_base: bool = True,
-        vdb_top_k: int = 20,
-        reranker_top_k: int = 4,
+        vdb_top_k: int = 12,
+        reranker_top_k: int = 5,
+        multimodal_reranker_top_k: int = 10,
+        enable_reranker: bool = True,
         enable_citations: bool = True,
         suffix_prompt: str | None = None,
         **kwargs,
@@ -44,6 +46,10 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
         self.filler = filler
         self.time_delay = time_delay
         self.timeout = 120
+        self.vdb_top_k = vdb_top_k
+        self.reranker_top_k = reranker_top_k
+        self.multimodal_reranker_top_k = multimodal_reranker_top_k
+        self.enable_reranker = enable_reranker
 
         super().__init__(
             collection_name=collection_name,
@@ -64,6 +70,17 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
     async def _get_rag_response(self, request_json: dict):
         rag_url = f"{self.rag_server_url.rstrip('/')}/generate"
         return await self.shared_session.post(rag_url, timeout=self.timeout, json=request_json)
+
+    def _select_reranker_top_k(self, chat_details: list[dict]) -> int:
+        multimodal_terms = ("表", "テーブル", "table", "図", "グラフ", "画像", "chart", "figure", "image")
+        last_user_message = ""
+        for message in reversed(chat_details):
+            if message.get("role") == "user":
+                last_user_message = str(message.get("content") or "").lower()
+                break
+        if any(term in last_user_message for term in multimodal_terms):
+            return max(self.reranker_top_k, self.multimodal_reranker_top_k)
+        return self.reranker_top_k
 
     def _parse_rag_chunk(self, raw_chunk: str) -> tuple[str, list[NvidiaRAGCitation]]:
         chunk = raw_chunk.strip()
@@ -123,6 +140,9 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
             if len(chat_details) == 0 or all(msg["content"] == "" for msg in chat_details) or not self.collection_name:
                 raise Exception("No query or collection name is provided.")
 
+            reranker_top_k = self._select_reranker_top_k(chat_details)
+            vdb_top_k = max(self.vdb_top_k, reranker_top_k)
+
             request_json = {
                 "messages": chat_details,
                 "use_knowledge_base": self.use_knowledge_base,
@@ -131,7 +151,10 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
                 "max_tokens": self.max_tokens,
                 "collection_names": [self.collection_name],
                 "collection_name": self.collection_name,
-                "stop": self.stop_words,
+                "vdb_top_k": vdb_top_k,
+                "reranker_top_k": reranker_top_k,
+                "enable_reranker": self.enable_reranker,
+                "stop": self.stop_words or [],
                 "enable_citations": self.enable_citations,
             }
 
@@ -145,7 +168,7 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
             async def monitor_request_time():
                 nonlocal filler_said
                 await asyncio.sleep(self.time_delay)
-                if not first_chunk_received and not filler_said:
+                if self.filler and not first_chunk_received and not filler_said:
                     filler_said = True
                     await self.push_frame(TTSSpeakFrame(random.choice(self.filler)))
 

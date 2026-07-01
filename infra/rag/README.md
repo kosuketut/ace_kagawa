@@ -47,6 +47,11 @@ The script calls the Blueprint ingestor API on `http://127.0.0.1:8082/v1/documen
 TOKKIO_RAG_ENABLED=true
 TOKKIO_RAG_SERVER_URL=http://10.209.1.12:8081/v1
 TOKKIO_RAG_COLLECTION_NAME=ace_kagawa
+TOKKIO_RAG_MAX_TOKENS=128
+TOKKIO_RAG_VDB_TOP_K=12
+TOKKIO_RAG_RERANKER_TOP_K=5
+TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K=10
+TOKKIO_RAG_ENABLE_RERANKER=true
 ```
 
 Regenerate and sync the controller after RAG is healthy:

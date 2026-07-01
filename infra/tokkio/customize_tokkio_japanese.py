@@ -19,7 +19,11 @@ DEFAULT_LLM_MODEL = "stockmark/stockmark-2-100b-instruct"
 DEFAULT_IRODORI_TTS_BASE_URL = "http://10.209.1.12:8021"
 DEFAULT_RAG_SERVER_URL = "http://10.209.1.12:8081/v1"
 DEFAULT_RAG_COLLECTION_NAME = "ace_kagawa"
-DEFAULT_RAG_SUFFIX_PROMPT = "日本語で簡潔に答えてください。"
+DEFAULT_RAG_SUFFIX_PROMPT = "日本語で80文字以内、1から2文で簡潔に答えてください。箇条書きや詳細説明は求められた時だけにしてください。"
+DEFAULT_RAG_MAX_TOKENS = 128
+DEFAULT_RAG_VDB_TOP_K = 12
+DEFAULT_RAG_RERANKER_TOP_K = 5
+DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K = 10
 DEFAULT_ASR_MODEL = "conformer-unified-ja-JP-asr-streaming-asr-bls-ensemble"
 DEFAULT_ASR_RMIR = "nvidia/riva/rmir_asr_conformer_unified_ja_jp_str:2.19.0"
 OBSOLETE_NEMOTRON_ASR_MODEL = "nvidia/nemotron-3.5-asr-streaming-0.6b"
@@ -46,10 +50,9 @@ class Pipeline(BaseModel):
     llm_processor: Literal["NvidiaRAGService", "NvidiaLLMService", "OpenAILLMService"]
     tts_processor: Literal["ElevenLabsTTSService", "RivaTTSService", "IrodoriTTSService"] = "IrodoriTTSService"
     filler: list[str] = [
-        "少々お待ちください",
-        "少し考えます",
+        "確認しています",
     ]
-    time_delay: float = 1.0
+    time_delay: float = 6.0
 
 
 class UserPresenceProcessor(BaseModel):
@@ -69,7 +72,11 @@ class OpenAILLMContext(BaseModel):
 
 class NvidiaRAGService(BaseModel):
     use_knowledge_base: bool = True
-    max_tokens: int = 1000
+    max_tokens: int = 128
+    vdb_top_k: int = 12
+    reranker_top_k: int = 5
+    multimodal_reranker_top_k: int = 10
+    enable_reranker: bool = True
     rag_server_url: str
     collection_name: StrictStr = "collection_name"
     suffix_prompt: str = ""
@@ -155,9 +162,8 @@ CONFIG_YAML = """Pipeline:
     # ElevenLabs remain available for fallback by changing this value.
     tts_processor: "IrodoriTTSService"
     filler:
-        - "少々お待ちください"
-        - "少し考えます"
-    time_delay: 1.0
+        - "確認しています"
+    time_delay: 6.0
 
 UserPresenceProcesssor:
     welcome_message: "こんにちは。ご用件をどうぞ。"
@@ -171,7 +177,7 @@ OpenAILLMContext:
     name: "香川"
     prompt: "あなたは「{name}」という名前の、日本語で応答する対話型バーチャルアシスタントです。
             標準語で自然かつ簡潔に答えてください。
-            40から120文字を目安に、1から3文で答えてください。
+            80文字以内、1から2文で答えてください。詳しい説明を求められた場合だけ、最大3文までにしてください。
             箇条書き、番号付きリスト、マークダウン、絵文字、記号装飾、内部思考は出さないでください。
             質問に必要な情報が不足している場合は、推測で断定せず、確認してください。
             ユーザー発話の前に「参考情報」ブロックがある場合は、その内容を事実として扱い、自然な標準語で短く織り込んでください。"
@@ -179,10 +185,14 @@ OpenAILLMContext:
 # This configuration is only used when llm_processor is set to "NvidiaRAGService"
 NvidiaRAGService:
     use_knowledge_base: true
-    max_tokens: 1000
+    max_tokens: 128
+    vdb_top_k: 12
+    reranker_top_k: 5
+    multimodal_reranker_top_k: 10
+    enable_reranker: true
     rag_server_url: "http://0.0.0.0:8081"
     collection_name: "collection_name"
-    suffix_prompt: "日本語で簡潔に答えてください。"
+    suffix_prompt: "日本語で80文字以内、1から2文で簡潔に答えてください。箇条書きや詳細説明は求められた時だけにしてください。"
 
 # This configuration is only used when llm_processor is set to "NvidiaLLMService"
 NvidiaLLMService:
@@ -298,6 +308,42 @@ NEW_LLM_SNIPPET = """        if config.Pipeline.llm_processor == 'NvidiaLLMServi
 
 
 PREVIOUS_LLM_SNIPPET = NEW_LLM_SNIPPET.replace('or ""', 'or "tensorrt_llm"')
+
+
+OLD_RAG_SNIPPET = """        if config.Pipeline.llm_processor == 'NvidiaRAGService':
+            llm = TokkioNvidiaRAGService(
+                collection_name=config.NvidiaRAGService.collection_name,
+                rag_server_url=config.NvidiaRAGService.rag_server_url,
+                use_knowledge_base=config.NvidiaRAGService.use_knowledge_base,
+                max_tokens=config.NvidiaRAGService.max_tokens,
+                suffix_prompt=config.NvidiaRAGService.suffix_prompt,
+                filler=config.Pipeline.filler,
+                time_delay=config.Pipeline.time_delay,
+            )
+"""
+
+
+NEW_RAG_SNIPPET = """        if config.Pipeline.llm_processor == 'NvidiaRAGService':
+            llm = TokkioNvidiaRAGService(
+                collection_name=config.NvidiaRAGService.collection_name,
+                rag_server_url=config.NvidiaRAGService.rag_server_url,
+                use_knowledge_base=config.NvidiaRAGService.use_knowledge_base,
+                max_tokens=config.NvidiaRAGService.max_tokens,
+                vdb_top_k=config.NvidiaRAGService.vdb_top_k,
+                reranker_top_k=config.NvidiaRAGService.reranker_top_k,
+                multimodal_reranker_top_k=config.NvidiaRAGService.multimodal_reranker_top_k,
+                enable_reranker=config.NvidiaRAGService.enable_reranker,
+                suffix_prompt=config.NvidiaRAGService.suffix_prompt,
+                filler=config.Pipeline.filler,
+                time_delay=config.Pipeline.time_delay,
+            )
+"""
+
+
+PREVIOUS_RAG_SNIPPET = NEW_RAG_SNIPPET.replace(
+    "                multimodal_reranker_top_k=config.NvidiaRAGService.multimodal_reranker_top_k,\n",
+    "",
+)
 
 
 OLD_BOT_SNIPPET = """        # For Nim use:
@@ -492,7 +538,11 @@ def build_config_yaml(
     rag_server_url: str = DEFAULT_RAG_SERVER_URL,
     rag_collection_name: str = DEFAULT_RAG_COLLECTION_NAME,
     rag_use_knowledge_base: bool = True,
-    rag_max_tokens: int = 1000,
+    rag_max_tokens: int = DEFAULT_RAG_MAX_TOKENS,
+    rag_vdb_top_k: int = DEFAULT_RAG_VDB_TOP_K,
+    rag_reranker_top_k: int = DEFAULT_RAG_RERANKER_TOP_K,
+    rag_multimodal_reranker_top_k: int = DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K,
+    rag_enable_reranker: bool = True,
     rag_suffix_prompt: str = DEFAULT_RAG_SUFFIX_PROMPT,
 ) -> str:
     base_url = normalize_openai_base_url(llm_base_url) or DEFAULT_LLM_BASE_URL
@@ -505,7 +555,14 @@ def build_config_yaml(
     return (
         CONFIG_YAML.replace('llm_processor: "NvidiaLLMService"', f"llm_processor: {quote_yaml(llm_processor)}")
         .replace('use_knowledge_base: true', f"use_knowledge_base: {'true' if rag_use_knowledge_base else 'false'}")
-        .replace("max_tokens: 1000", f"max_tokens: {rag_max_tokens}")
+        .replace(f"max_tokens: {DEFAULT_RAG_MAX_TOKENS}", f"max_tokens: {rag_max_tokens}")
+        .replace(f"vdb_top_k: {DEFAULT_RAG_VDB_TOP_K}", f"vdb_top_k: {rag_vdb_top_k}")
+        .replace(f"reranker_top_k: {DEFAULT_RAG_RERANKER_TOP_K}", f"reranker_top_k: {rag_reranker_top_k}")
+        .replace(
+            f"multimodal_reranker_top_k: {DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K}",
+            f"multimodal_reranker_top_k: {rag_multimodal_reranker_top_k}",
+        )
+        .replace("enable_reranker: true", f"enable_reranker: {'true' if rag_enable_reranker else 'false'}")
         .replace('rag_server_url: "http://0.0.0.0:8081"', f"rag_server_url: {quote_yaml(normalized_rag_server_url)}")
         .replace('collection_name: "collection_name"', f"collection_name: {quote_yaml(rag_collection)}")
         .replace(f'suffix_prompt: "{DEFAULT_RAG_SUFFIX_PROMPT}"', f"suffix_prompt: {quote_yaml(rag_suffix)}")
@@ -551,6 +608,21 @@ def patch_llm_snippet(bot_py_path: Path) -> None:
     raise RuntimeError(f"expected LLM snippet not found in {bot_py_path}")
 
 
+def patch_rag_snippet(bot_py_path: Path) -> None:
+    original = bot_py_path.read_text(encoding="utf-8")
+    if NEW_RAG_SNIPPET in original:
+        return
+    if OLD_RAG_SNIPPET in original:
+        replace_literal(bot_py_path, OLD_RAG_SNIPPET, NEW_RAG_SNIPPET)
+        return
+    if PREVIOUS_RAG_SNIPPET in original:
+        replace_literal(bot_py_path, PREVIOUS_RAG_SNIPPET, NEW_RAG_SNIPPET)
+        return
+    if "TokkioNvidiaRAGService(" not in original:
+        return
+    raise RuntimeError(f"expected RAG snippet not found in {bot_py_path}")
+
+
 def patch_riva_values(ace_repo_dir: Path) -> list[Path]:
     values_paths = sorted(
         (ace_repo_dir / "workflows" / "tokkio" / "5.0.0-ga" / "llm-rag").glob("tokkio-*/values.yaml")
@@ -590,6 +662,10 @@ def patch_profile_ace_controller_configs(
     rag_collection_name: str,
     rag_use_knowledge_base: bool,
     rag_max_tokens: int,
+    rag_vdb_top_k: int,
+    rag_reranker_top_k: int,
+    rag_multimodal_reranker_top_k: int,
+    rag_enable_reranker: bool,
     rag_suffix_prompt: str,
 ) -> list[Path]:
     config_paths = sorted(
@@ -609,6 +685,10 @@ def patch_profile_ace_controller_configs(
                 rag_collection_name=rag_collection_name,
                 rag_use_knowledge_base=rag_use_knowledge_base,
                 rag_max_tokens=rag_max_tokens,
+                rag_vdb_top_k=rag_vdb_top_k,
+                rag_reranker_top_k=rag_reranker_top_k,
+                rag_multimodal_reranker_top_k=rag_multimodal_reranker_top_k,
+                rag_enable_reranker=rag_enable_reranker,
                 rag_suffix_prompt=rag_suffix_prompt,
             ),
         )
@@ -625,7 +705,11 @@ def apply_patch(
     rag_server_url: str = DEFAULT_RAG_SERVER_URL,
     rag_collection_name: str = DEFAULT_RAG_COLLECTION_NAME,
     rag_use_knowledge_base: bool = True,
-    rag_max_tokens: int = 1000,
+    rag_max_tokens: int = DEFAULT_RAG_MAX_TOKENS,
+    rag_vdb_top_k: int = DEFAULT_RAG_VDB_TOP_K,
+    rag_reranker_top_k: int = DEFAULT_RAG_RERANKER_TOP_K,
+    rag_multimodal_reranker_top_k: int = DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K,
+    rag_enable_reranker: bool = True,
     rag_suffix_prompt: str = DEFAULT_RAG_SUFFIX_PROMPT,
 ) -> list[Path]:
     llm_rag_dir = ace_repo_dir / "workflows" / "tokkio" / "5.0.0-ga" / "src" / "llm-rag"
@@ -657,12 +741,17 @@ def apply_patch(
             rag_collection_name=rag_collection_name,
             rag_use_knowledge_base=rag_use_knowledge_base,
             rag_max_tokens=rag_max_tokens,
+            rag_vdb_top_k=rag_vdb_top_k,
+            rag_reranker_top_k=rag_reranker_top_k,
+            rag_multimodal_reranker_top_k=rag_multimodal_reranker_top_k,
+            rag_enable_reranker=rag_enable_reranker,
             rag_suffix_prompt=rag_suffix_prompt,
         ),
     )
     write_text(irodori_tts_py_path, irodori_tts_source_path.read_text(encoding="utf-8"))
     write_text(tokkio_rag_py_path, tokkio_rag_source_path.read_text(encoding="utf-8"))
     patch_llm_snippet(bot_py_path)
+    patch_rag_snippet(bot_py_path)
     profile_config_paths = patch_profile_ace_controller_configs(
         ace_repo_dir,
         llm_base_url=llm_base_url,
@@ -673,6 +762,10 @@ def apply_patch(
         rag_collection_name=rag_collection_name,
         rag_use_knowledge_base=rag_use_knowledge_base,
         rag_max_tokens=rag_max_tokens,
+        rag_vdb_top_k=rag_vdb_top_k,
+        rag_reranker_top_k=rag_reranker_top_k,
+        rag_multimodal_reranker_top_k=rag_multimodal_reranker_top_k,
+        rag_enable_reranker=rag_enable_reranker,
         rag_suffix_prompt=rag_suffix_prompt,
     )
     try:
@@ -749,8 +842,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rag-max-tokens",
         type=int,
-        default=int(os.environ.get("TOKKIO_RAG_MAX_TOKENS", "1000")),
-        help="Maximum response tokens for NvidiaRAGService (default: 1000)",
+        default=int(os.environ.get("TOKKIO_RAG_MAX_TOKENS", str(DEFAULT_RAG_MAX_TOKENS))),
+        help=f"Maximum response tokens for NvidiaRAGService (default: {DEFAULT_RAG_MAX_TOKENS})",
+    )
+    parser.add_argument(
+        "--rag-vdb-top-k",
+        type=int,
+        default=int(os.environ.get("TOKKIO_RAG_VDB_TOP_K", str(DEFAULT_RAG_VDB_TOP_K))),
+        help=f"Number of vector DB candidates to retrieve before reranking (default: {DEFAULT_RAG_VDB_TOP_K})",
+    )
+    parser.add_argument(
+        "--rag-reranker-top-k",
+        type=int,
+        default=int(os.environ.get("TOKKIO_RAG_RERANKER_TOP_K", str(DEFAULT_RAG_RERANKER_TOP_K))),
+        help=f"Number of reranked chunks sent to the LLM context (default: {DEFAULT_RAG_RERANKER_TOP_K})",
+    )
+    parser.add_argument(
+        "--rag-multimodal-reranker-top-k",
+        type=int,
+        default=int(os.environ.get("TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K", str(DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K))),
+        help=(
+            "Reranker top-k used for table/chart/image-style questions "
+            f"(default: {DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K})"
+        ),
+    )
+    parser.add_argument(
+        "--rag-enable-reranker",
+        default=os.environ.get("TOKKIO_RAG_ENABLE_RERANKER", "true"),
+        help="Set false to skip reranking; keep true for accuracy-preserving latency tuning (default: true)",
     )
     parser.add_argument(
         "--rag-suffix-prompt",
@@ -772,6 +891,10 @@ def main() -> int:
         rag_collection_name=args.rag_collection_name,
         rag_use_knowledge_base=parse_bool(args.rag_use_knowledge_base),
         rag_max_tokens=args.rag_max_tokens,
+        rag_vdb_top_k=args.rag_vdb_top_k,
+        rag_reranker_top_k=args.rag_reranker_top_k,
+        rag_multimodal_reranker_top_k=args.rag_multimodal_reranker_top_k,
+        rag_enable_reranker=parse_bool(args.rag_enable_reranker),
         rag_suffix_prompt=args.rag_suffix_prompt,
     )
     print("Updated files:")

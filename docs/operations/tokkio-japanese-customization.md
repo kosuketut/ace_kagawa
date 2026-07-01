@@ -17,6 +17,10 @@
   - `NvidiaLLMService.model` を `stockmark/stockmark-2-100b-instruct` に変更
   - `TOKKIO_RAG_ENABLED=true` の場合は `Pipeline.llm_processor` を `NvidiaRAGService` に変更
   - `NvidiaRAGService.rag_server_url` / `collection_name` を host-side NVIDIA RAG Blueprint に合わせる
+  - `NvidiaRAGService.vdb_top_k=12` / `reranker_top_k=5` / `enable_reranker=true` で検索精度を保ちながら LLM に渡す context 量を抑える
+  - 表・図・画像系の質問では `multimodal_reranker_top_k=10` に自動で広げる
+  - `NvidiaRAGService.max_tokens=128` と短文プロンプトで音声対話向けの生成長に制限する
+  - `Pipeline.time_delay=6.0` で、通常のRAG応答では filler phrase より本回答を優先する
   - `ASR language=ja-JP`
   - `ASR model=nvidia/nemotron-3.5-asr-streaming-0.6b`
   - `TTS processor=RivaTTSService`
