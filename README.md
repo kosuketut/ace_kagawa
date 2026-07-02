@@ -44,19 +44,26 @@ python3 infra/llm/check_llm_endpoint.py \
 
 ## RAG
 
-Tokkio の裏側で RAG を使う場合は、host 側で NVIDIA RAG Blueprint を起動し、controller の `llm_processor` を `NvidiaRAGService` に切り替えます。この variant の既定 collection 名は `ace_kagawa` です。
+Tokkio の裏側で RAG を使う場合、既定は `data/rag/corpus` から作るローカル SQLite RAG です。`TOKKIO_RAG_MODE=auto` では通常会話は hosted NVIDIA NIM へ直接流し、資料・論文・詳細質問だけ RAG へ自動ルーティングします。全発話を RAG に通したい場合は `TOKKIO_RAG_MODE=always`、NVIDIA RAG Blueprint を使いたい場合は `TOKKIO_RAG_PROVIDER=nvidia` を使います。
 
 ```bash
-export NVIDIA_API_KEY=<your-nvidia-nim-api-key>
-infra/rag/manage_rag.sh init
-infra/rag/manage_rag.sh start
 mkdir -p data/rag/corpus
-infra/rag/ingest_local_corpus.sh --collection ace_kagawa
+python3 infra/rag/build_local_index.py \
+  --corpus data/rag/corpus \
+  --db data/rag/local/local_rag.sqlite
 python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
 infra/tokkio/manage_tokkio.sh sync-controller --env-file infra/tokkio/.env
 ```
 
-RAG Blueprint の checkout と Docker runtime は `/data/ACE/rag`、文書 corpus は `data/rag/corpus` に置きます。詳細は `infra/rag/README.md` を参照してください。
+検索結果だけ確認する場合:
+
+```bash
+python3 infra/rag/query_local_index.py \
+  --db data/rag/local/local_rag.sqlite \
+  "香川先生の専門分野は何ですか"
+```
+
+厳密な citation や NVIDIA Blueprint 側のPDF処理を使う場合は、host 側で NVIDIA RAG Blueprint を起動し、`TOKKIO_RAG_PROVIDER=nvidia` にします。RAG Blueprint の checkout と Docker runtime は `/data/ACE/rag`、文書 corpus と local index は `data/rag/...` に置きます。詳細は `infra/rag/README.md` を参照してください。
 
 ## Tokkio 5.0
 

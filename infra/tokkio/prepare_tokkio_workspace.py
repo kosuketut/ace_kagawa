@@ -26,6 +26,49 @@ DEFAULT_RAG_MAX_TOKENS = 128
 DEFAULT_RAG_VDB_TOP_K = 12
 DEFAULT_RAG_RERANKER_TOP_K = 5
 DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K = 10
+DEFAULT_RAG_MODE = "auto"
+DEFAULT_RAG_PROVIDER = "local"
+DEFAULT_LOCAL_RAG_DB_PATH = "data/rag/local/local_rag.sqlite"
+DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH = "/code/configs/local_rag.sqlite"
+DEFAULT_LOCAL_RAG_TOP_K = 3
+DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS = 1800
+DEFAULT_RAG_ROUTE_KEYWORDS = [
+    "論文",
+    "文献",
+    "出典",
+    "根拠",
+    "資料",
+    "ドキュメント",
+    "引用",
+    "詳細",
+    "詳しく",
+    "経歴",
+    "学歴",
+    "職歴",
+    "略歴",
+    "役職",
+    "現職",
+    "職名",
+    "学位",
+    "所属",
+    "生年月日",
+    "年齢",
+    "プロフィール",
+    "誰ですか",
+    "専門分野",
+    "業績",
+    "研究業績",
+    "研究内容",
+    "プロジェクト",
+    "発表",
+    "受賞",
+    "特許",
+    "EBC",
+    "CMC",
+    "SiC/SiC",
+    "非破壊評価",
+]
+DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR = True
 
 
 @dataclass(frozen=True)
@@ -46,6 +89,8 @@ class IrodoriTtsSettings:
 @dataclass(frozen=True)
 class RagSettings:
     enabled: bool
+    mode: str
+    provider: str
     server_url: str
     collection_name: str
     use_knowledge_base: bool
@@ -55,6 +100,12 @@ class RagSettings:
     multimodal_reranker_top_k: int
     enable_reranker: bool
     suffix_prompt: str
+    route_keywords: list[str]
+    fallback_to_llm_on_error: bool
+    local_db_path: str
+    local_runtime_db_path: str
+    local_top_k: int
+    local_max_context_chars: int
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -142,6 +193,28 @@ def parse_positive_int(values: dict[str, str], key: str, default: int) -> int:
     return value
 
 
+def normalize_rag_mode(value: str) -> str:
+    mode = value.strip().lower() or DEFAULT_RAG_MODE
+    if mode not in {"auto", "always", "off"}:
+        raise ValueError(f"TOKKIO_RAG_MODE must be one of auto, always, off: {value}")
+    return mode
+
+
+def normalize_rag_provider(value: str) -> str:
+    provider = value.strip().lower() or DEFAULT_RAG_PROVIDER
+    if provider not in {"nvidia", "local"}:
+        raise ValueError(f"TOKKIO_RAG_PROVIDER must be one of nvidia, local: {value}")
+    return provider
+
+
+def parse_route_keywords(values: dict[str, str], key: str) -> list[str]:
+    raw = values.get(key, "").strip()
+    if not raw:
+        return list(DEFAULT_RAG_ROUTE_KEYWORDS)
+    keywords = [keyword.strip() for keyword in raw.split(",") if keyword.strip()]
+    return keywords or list(DEFAULT_RAG_ROUTE_KEYWORDS)
+
+
 def resolve_irodori_tts_settings(values: dict[str, str]) -> IrodoriTtsSettings:
     enabled = is_enabled(values, "TOKKIO_IRODORI_TTS_ENABLED", default=True)
     base_url = values.get("TOKKIO_IRODORI_TTS_BASE_URL", "").strip()
@@ -164,6 +237,8 @@ def resolve_irodori_tts_settings(values: dict[str, str]) -> IrodoriTtsSettings:
 
 def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
     enabled = is_enabled(values, "TOKKIO_RAG_ENABLED", default=False)
+    mode = normalize_rag_mode(values.get("TOKKIO_RAG_MODE", DEFAULT_RAG_MODE))
+    provider = normalize_rag_provider(values.get("TOKKIO_RAG_PROVIDER", DEFAULT_RAG_PROVIDER))
     server_url = values.get("TOKKIO_RAG_SERVER_URL", "").strip()
     if not server_url:
         app_host = values.get("TOKKIO_APP_HOST_IPV4_ADDR", "").strip()
@@ -172,6 +247,8 @@ def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
     collection_name = values.get("TOKKIO_RAG_COLLECTION_NAME", "").strip() or DEFAULT_RAG_COLLECTION_NAME
     return RagSettings(
         enabled=enabled,
+        mode=mode,
+        provider=provider,
         server_url=normalize_rag_server_url(server_url),
         collection_name=collection_name,
         use_knowledge_base=is_enabled(values, "TOKKIO_RAG_USE_KNOWLEDGE_BASE", default=True),
@@ -185,6 +262,22 @@ def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
         ),
         enable_reranker=is_enabled(values, "TOKKIO_RAG_ENABLE_RERANKER", default=True),
         suffix_prompt=values.get("TOKKIO_RAG_SUFFIX_PROMPT", "").strip() or DEFAULT_RAG_SUFFIX_PROMPT,
+        route_keywords=parse_route_keywords(values, "TOKKIO_RAG_ROUTE_KEYWORDS"),
+        fallback_to_llm_on_error=is_enabled(
+            values,
+            "TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR",
+            default=DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR,
+        ),
+        local_db_path=values.get("TOKKIO_LOCAL_RAG_DB", "").strip() or DEFAULT_LOCAL_RAG_DB_PATH,
+        local_runtime_db_path=(
+            values.get("TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH", "").strip() or DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH
+        ),
+        local_top_k=parse_positive_int(values, "TOKKIO_LOCAL_RAG_TOP_K", DEFAULT_LOCAL_RAG_TOP_K),
+        local_max_context_chars=parse_positive_int(
+            values,
+            "TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS",
+            DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS,
+        ),
     )
 
 
@@ -263,6 +356,10 @@ def maybe_apply_japanese_customization(
             irodori_tts_settings.base_url,
             "--rag-enabled",
             "true" if rag_settings.enabled else "false",
+            "--rag-mode",
+            rag_settings.mode,
+            "--rag-provider",
+            rag_settings.provider,
             "--rag-server-url",
             rag_settings.server_url,
             "--rag-collection-name",
@@ -281,6 +378,18 @@ def maybe_apply_japanese_customization(
             "true" if rag_settings.enable_reranker else "false",
             "--rag-suffix-prompt",
             rag_settings.suffix_prompt,
+            "--rag-route-keywords",
+            ",".join(rag_settings.route_keywords),
+            "--rag-fallback-to-llm-on-error",
+            "true" if rag_settings.fallback_to_llm_on_error else "false",
+            "--local-rag-db",
+            rag_settings.local_db_path,
+            "--local-rag-runtime-db-path",
+            rag_settings.local_runtime_db_path,
+            "--local-rag-top-k",
+            str(rag_settings.local_top_k),
+            "--local-rag-max-context-chars",
+            str(rag_settings.local_max_context_chars),
         ],
         check=True,
     )
@@ -350,6 +459,8 @@ def main() -> int:
         },
         "rag": {
             "enabled": rag_settings.enabled,
+            "mode": rag_settings.mode,
+            "provider": rag_settings.provider,
             "server_url": rag_settings.server_url,
             "collection_name": rag_settings.collection_name,
             "use_knowledge_base": rag_settings.use_knowledge_base,
@@ -358,6 +469,12 @@ def main() -> int:
             "reranker_top_k": rag_settings.reranker_top_k,
             "multimodal_reranker_top_k": rag_settings.multimodal_reranker_top_k,
             "enable_reranker": rag_settings.enable_reranker,
+            "route_keywords": rag_settings.route_keywords,
+            "fallback_to_llm_on_error": rag_settings.fallback_to_llm_on_error,
+            "local_db_path": rag_settings.local_db_path,
+            "local_runtime_db_path": rag_settings.local_runtime_db_path,
+            "local_top_k": rag_settings.local_top_k,
+            "local_max_context_chars": rag_settings.local_max_context_chars,
         },
     }
     (generated_dir / "manifest.json").write_text(

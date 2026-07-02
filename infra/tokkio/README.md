@@ -9,7 +9,7 @@
   - one-click script 用の `my-config.env` を生成
   - `TOKKIO_OPENAI_API_KEY` が空でも、Tokkio 5.0 の過剰な secret validation を避けるために placeholder を補完
   - `TOKKIO_LLM_BASE_URL` / `TOKKIO_LLM_MODEL` を日本語向け `llm-rag` config に反映
-  - `TOKKIO_RAG_ENABLED=true` の場合は `NvidiaRAGService` と RAG collection 設定を `llm-rag` config に反映
+  - `TOKKIO_RAG_ENABLED=true` の場合は `TOKKIO_RAG_MODE=auto|always|off`、`TOKKIO_RAG_PROVIDER=local|nvidia`、RAG collection/local DB 設定を `llm-rag` config に反映
   - `NVIDIA-ACE` clone が存在すれば、日本語・標準語向け `llm-rag` パッチを自動適用
 - `deploy_tokkio.sh`
   - `envbuild.sh` の `init-config`, `install`, `info`, `uninstall` を叩くラッパ
@@ -54,10 +54,12 @@ TOKKIO_LLM_MODEL=stockmark/stockmark-2-100b-instruct
 TOKKIO_LLM_API_KEY=
 ```
 
-RAG を使う場合は、先に host 側で NVIDIA RAG Blueprint を起動します。`infra/tokkio/.env` の RAG 既定値は次の形です。
+RAG を使う場合、既定の `TOKKIO_RAG_PROVIDER=local` では `data/rag/corpus` から作った SQLite index を controller に同期し、検索結果だけを `NvidiaLLMService` 相当の NIM 直呼びへ渡します。`TOKKIO_RAG_MODE=auto` では通常会話は直接 NIM で応答し、資料・論文・詳細質問だけ RAG に回します。`always` にすると全発話を RAG に通し、`off` にすると RAG を使いません。NVIDIA RAG Blueprint を使う場合は `TOKKIO_RAG_PROVIDER=nvidia` にします。
 
 ```bash
 TOKKIO_RAG_ENABLED=true
+TOKKIO_RAG_MODE=auto
+TOKKIO_RAG_PROVIDER=local
 TOKKIO_RAG_SERVER_URL=http://10.209.1.12:8081/v1
 TOKKIO_RAG_COLLECTION_NAME=ace_kagawa
 TOKKIO_RAG_MAX_TOKENS=128
@@ -65,10 +67,24 @@ TOKKIO_RAG_VDB_TOP_K=12
 TOKKIO_RAG_RERANKER_TOP_K=5
 TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K=10
 TOKKIO_RAG_ENABLE_RERANKER=true
+TOKKIO_RAG_ROUTE_KEYWORDS=論文,文献,出典,根拠,資料,ドキュメント,引用,詳細,詳しく,経歴,業績,研究業績,研究内容,プロジェクト,発表,受賞,特許,EBC,CMC,SiC/SiC,非破壊評価
+TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR=true
 TOKKIO_RAG_HEALTH_URL=http://127.0.0.1:8081/v1/health?check_dependencies=true
+TOKKIO_LOCAL_RAG_DB=data/rag/local/local_rag.sqlite
+TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH=/code/configs/local_rag.sqlite
+TOKKIO_LOCAL_RAG_TOP_K=3
+TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS=1800
 ```
 
-起動と文書取り込みは repo root から次を使います。
+local RAG index の作成は repo root から次を使います。
+
+```bash
+python3 infra/rag/build_local_index.py \
+  --corpus data/rag/corpus \
+  --db data/rag/local/local_rag.sqlite
+```
+
+NVIDIA RAG Blueprint を使う場合だけ、repo root から次を使います。
 
 ```bash
 infra/rag/manage_rag.sh start

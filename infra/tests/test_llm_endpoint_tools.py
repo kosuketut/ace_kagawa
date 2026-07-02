@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
+EXPECTED_DEFAULT_MODEL = "stockmark/stockmark-2-100b-instruct"
 
 
 def load_module(name: str, path: Path):
@@ -24,6 +27,15 @@ merge_lora = load_module("merge_osaka_swallow_lora", ROOT / "infra" / "llm" / "m
 
 
 class LlmEndpointToolTests(unittest.TestCase):
+    def test_endpoint_check_defaults_to_stockmark_100b_instruct(self) -> None:
+        self.assertEqual(check_llm.DEFAULT_MODEL, EXPECTED_DEFAULT_MODEL)
+
+    def test_arg_parser_reuses_tokkio_nvidia_api_key(self) -> None:
+        with patch.dict(os.environ, {"TOKKIO_NVIDIA_API_KEY": "tokkio-key"}, clear=True):
+            args = check_llm.build_arg_parser().parse_args([])
+
+        self.assertEqual(args.api_key, "tokkio-key")
+
     def test_normalize_base_url_adds_v1_suffix_once(self) -> None:
         self.assertEqual(check_llm.normalize_openai_base_url("http://127.0.0.1:8000"), "http://127.0.0.1:8000/v1")
         self.assertEqual(check_llm.normalize_openai_base_url("http://127.0.0.1:8000/v1"), "http://127.0.0.1:8000/v1")

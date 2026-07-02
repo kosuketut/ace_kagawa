@@ -145,6 +145,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=(
             os.environ.get("TOKKIO_LLM_API_KEY")
             or os.environ.get("NVIDIA_LLM_API_KEY")
+            or os.environ.get("TOKKIO_NVIDIA_API_KEY")
             or os.environ.get("NVIDIA_API_KEY")
             or ""
         ),

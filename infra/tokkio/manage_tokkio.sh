@@ -90,9 +90,13 @@ load_env() {
   IRODORI_TTS_WAIT_ATTEMPTS="${TOKKIO_IRODORI_TTS_WAIT_ATTEMPTS:-60}"
   IRODORI_TTS_WAIT_SECONDS="${TOKKIO_IRODORI_TTS_WAIT_SECONDS:-2}"
   RAG_ENABLED="${TOKKIO_RAG_ENABLED:-false}"
+  RAG_MODE="${TOKKIO_RAG_MODE:-auto}"
+  RAG_PROVIDER="${TOKKIO_RAG_PROVIDER:-local}"
   RAG_HEALTH_URL="${TOKKIO_RAG_HEALTH_URL:-${DEFAULT_RAG_HEALTH_URL}}"
   RAG_WAIT_ATTEMPTS="${TOKKIO_RAG_WAIT_ATTEMPTS:-60}"
   RAG_WAIT_SECONDS="${TOKKIO_RAG_WAIT_SECONDS:-2}"
+  LOCAL_RAG_DB="${TOKKIO_LOCAL_RAG_DB:-data/rag/local/local_rag.sqlite}"
+  LOCAL_RAG_RUNTIME_DB_PATH="${TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH:-/code/configs/local_rag.sqlite}"
 }
 
 show_urls() {
@@ -185,6 +189,19 @@ is_rag_enabled() {
   esac
 }
 
+is_rag_required() {
+  is_rag_enabled || return 1
+  [[ "${RAG_PROVIDER,,}" == "nvidia" ]] || return 1
+  case "${RAG_MODE,,}" in
+    always)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 check_rag_health() {
   curl -fsS "${RAG_HEALTH_URL}" >/dev/null
 }
@@ -194,6 +211,10 @@ wait_for_rag_health() {
 
   if ! is_rag_enabled; then
     info "RAG integration disabled."
+    return 0
+  fi
+  if [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    info "Local RAG provider selected; skipping NVIDIA RAG health check."
     return 0
   fi
 
@@ -207,12 +228,20 @@ wait_for_rag_health() {
   done
 
   warn "Timed out waiting for RAG health: ${RAG_HEALTH_URL}"
+  if ! is_rag_required; then
+    warn "RAG auto mode or local provider will continue with direct LLM fallback when NVIDIA RAG is unavailable."
+    return 0
+  fi
   return 1
 }
 
 show_rag_status() {
   if ! is_rag_enabled; then
     info "RAG integration disabled."
+    return 0
+  fi
+  if [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    info "RAG provider: local SQLite (${LOCAL_RAG_DB})"
     return 0
   fi
 
@@ -470,10 +499,13 @@ show_status() {
 
 ensure_controller_runtime_source_files() {
   local source_dir="${TOKKIO_CONTROLLER_SOURCE_DIR}"
+  local local_rag_db_name="${LOCAL_RAG_RUNTIME_DB_PATH##*/}"
   local required_file
   local required_files=(
     "${source_dir}/src/bot.py"
     "${source_dir}/src/config.py"
+    "${source_dir}/src/local_rag.py"
+    "${source_dir}/src/tokkio_llm.py"
     "${source_dir}/src/tokkio_irodori_tts.py"
     "${source_dir}/src/tokkio_rag.py"
     "${source_dir}/configs/config.yaml"
@@ -482,15 +514,36 @@ ensure_controller_runtime_source_files() {
   for required_file in "${required_files[@]}"; do
     [[ -f "${required_file}" ]] || die "required controller runtime file not found: ${required_file}"
   done
+
+  if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    [[ -f "${source_dir}/configs/${local_rag_db_name}" ]] || die "local RAG DB not found: ${source_dir}/configs/${local_rag_db_name}"
+  fi
+}
+
+first_pod_name_by_prefix() {
+  local prefix="$1"
+  local pod_names="$2"
+  local candidate
+
+  while IFS= read -r candidate; do
+    [[ -n "${candidate}" ]] || continue
+    if [[ "${candidate}" == "${prefix}"* ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done <<< "${pod_names}"
+
+  return 1
 }
 
 wait_for_controller_ready() {
   local attempt
   local pod_name
+  local pod_names
 
   for attempt in $(seq 1 "${APP_WORKLOAD_WAIT_ATTEMPTS}"); do
-    pod_name="$(kubectl get pods -n "${APP_NAMESPACE}" --no-headers -o custom-columns='NAME:.metadata.name' 2>/dev/null | awk -v prefix="${TOKKIO_CONTROLLER_POD_PREFIX}" 'index($0, prefix) == 1 { print; exit }')"
-    if [[ -n "${pod_name}" ]]; then
+    if pod_names="$(kubectl get pods -n "${APP_NAMESPACE}" --no-headers -o custom-columns='NAME:.metadata.name' 2>/dev/null)" \
+      && pod_name="$(first_pod_name_by_prefix "${TOKKIO_CONTROLLER_POD_PREFIX}" "${pod_names}")"; then
       break
     fi
     info "Waiting for ace-controller pod to be recreated (attempt ${attempt}/${APP_WORKLOAD_WAIT_ATTEMPTS})"
@@ -505,11 +558,15 @@ wait_for_controller_ready() {
 sync_controller_runtime_files() {
   local pod_name
   local source_dir="${TOKKIO_CONTROLLER_SOURCE_DIR}"
+  local local_rag_db_name="${LOCAL_RAG_RUNTIME_DB_PATH##*/}"
+  local local_rag_db_file="${source_dir}/configs/${local_rag_db_name}"
   local src_file
   local config_file="${source_dir}/configs/config.yaml"
   local src_files=(
     "bot.py"
     "config.py"
+    "local_rag.py"
+    "tokkio_llm.py"
     "tokkio_irodori_tts.py"
     "tokkio_rag.py"
   )
@@ -526,6 +583,9 @@ sync_controller_runtime_files() {
     kubectl cp "${source_dir}/src/${src_file}" "${APP_NAMESPACE}/${pod_name}:/code/src/${src_file}"
   done
   kubectl cp "${config_file}" "${APP_NAMESPACE}/${pod_name}:/code/configs/config.yaml"
+  if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    kubectl cp "${local_rag_db_file}" "${APP_NAMESPACE}/${pod_name}:/code/configs/${local_rag_db_name}"
+  fi
   kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- touch /code/src/bot.py
   info "ace-controller source/config sync complete"
 }
@@ -540,8 +600,7 @@ resolve_pod_by_prefix() {
     return 1
   fi
 
-  pod_name="$(printf '%s\n' "${pod_names}" | awk -v prefix="${prefix}" 'index($0, prefix) == 1 { print; exit }')"
-  if [[ -n "${pod_name}" ]]; then
+  if pod_name="$(first_pod_name_by_prefix "${prefix}" "${pod_names}")"; then
     printf '%s\n' "${pod_name}"
     return 0
   fi

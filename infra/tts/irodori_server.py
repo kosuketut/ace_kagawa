@@ -8,11 +8,14 @@ configuration and audio conversion without loading model dependencies.
 
 import argparse
 import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass
 from io import BytesIO
 import os
 from pathlib import Path
+import re
 import subprocess
+from threading import Lock
 from typing import Mapping
 import wave
 
@@ -25,6 +28,16 @@ DEFAULT_HF_CHECKPOINT = "Aratako/Irodori-TTS-500M-v3"
 DEFAULT_REFERENCE_SOURCE = ROOT / "Irodori-TTS" / "data" / "kagawa_voice.m4a"
 DEFAULT_REFERENCE_WAV = DEFAULT_DATA_ROOT / "reference" / "kagawa_voice_ref_48k_mono.wav"
 DEFAULT_VOICE = "kagawa"
+PRONUNCIATION_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"香川\s*豊"), "香川ゆたか"),
+)
+
+
+def normalize_speech_input(text: str) -> str:
+    normalized = text.strip()
+    for pattern, replacement in PRONUNCIATION_HINTS:
+        normalized = pattern.sub(replacement, normalized)
+    return normalized
 
 
 def _env_bool(env: Mapping[str, str], key: str, default: bool) -> bool:
@@ -71,6 +84,9 @@ class IrodoriSettings:
     max_ref_seconds: float = 30.0
     response_sample_rate_hz: int = 16000
     preload_model: bool = False
+    short_cache_enabled: bool = False
+    short_cache_max_chars: int = 40
+    short_cache_max_entries: int = 128
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "IrodoriSettings":
@@ -104,6 +120,9 @@ class IrodoriSettings:
             max_ref_seconds=_env_float(values, "IRODORI_TTS_MAX_REF_SECONDS", 30.0),
             response_sample_rate_hz=_env_int(values, "IRODORI_TTS_RESPONSE_SAMPLE_RATE_HZ", 16000),
             preload_model=_env_bool(values, "IRODORI_TTS_PRELOAD_MODEL", False),
+            short_cache_enabled=_env_bool(values, "IRODORI_TTS_SHORT_CACHE_ENABLED", False),
+            short_cache_max_chars=_env_int(values, "IRODORI_TTS_SHORT_CACHE_MAX_CHARS", 40),
+            short_cache_max_entries=_env_int(values, "IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES", 128),
         )
 
     def ensure_reference_wav(self) -> Path:
@@ -181,6 +200,8 @@ class IrodoriSynthesizer:
     def __init__(self, settings: IrodoriSettings) -> None:
         self._settings = settings
         self._runtime = None
+        self._short_cache: OrderedDict[tuple[str, str], tuple[bytes, str, int]] = OrderedDict()
+        self._short_cache_lock = Lock()
 
     def load_runtime(self):
         if self._runtime is not None:
@@ -209,13 +230,7 @@ class IrodoriSynthesizer:
         )
         return self._runtime
 
-    def synthesize(self, text: str, *, response_format: str = "pcm") -> tuple[bytes, str, int]:
-        normalized_text = text.strip()
-        if not normalized_text:
-            raise ValueError("input text must be non-empty")
-        if response_format not in {"pcm", "wav"}:
-            raise ValueError("response_format must be one of: pcm, wav")
-
+    def _synthesize_normalized(self, normalized_text: str, *, response_format: str) -> tuple[bytes, str, int]:
         from irodori_tts.inference_runtime import SamplingRequest
 
         ref_wav = self._settings.ensure_reference_wav()
@@ -247,6 +262,50 @@ class IrodoriSynthesizer:
                 self._settings.response_sample_rate_hz,
             )
         return pcm, "audio/L16", self._settings.response_sample_rate_hz
+
+    def _is_short_cacheable(self, normalized_text: str) -> bool:
+        return (
+            self._settings.short_cache_enabled
+            and self._settings.short_cache_max_entries > 0
+            and len(normalized_text) <= self._settings.short_cache_max_chars
+        )
+
+    def _get_short_cache(self, key: tuple[str, str]) -> tuple[bytes, str, int] | None:
+        with self._short_cache_lock:
+            cached = self._short_cache.get(key)
+            if cached is None:
+                return None
+            self._short_cache.move_to_end(key)
+            return cached
+
+    def _put_short_cache(self, key: tuple[str, str], value: tuple[bytes, str, int]) -> None:
+        with self._short_cache_lock:
+            self._short_cache[key] = value
+            self._short_cache.move_to_end(key)
+            while len(self._short_cache) > self._settings.short_cache_max_entries:
+                self._short_cache.popitem(last=False)
+
+    def short_cache_size(self) -> int:
+        with self._short_cache_lock:
+            return len(self._short_cache)
+
+    def synthesize(self, text: str, *, response_format: str = "pcm") -> tuple[bytes, str, int]:
+        normalized_text = normalize_speech_input(text)
+        if not normalized_text:
+            raise ValueError("input text must be non-empty")
+        if response_format not in {"pcm", "wav"}:
+            raise ValueError("response_format must be one of: pcm, wav")
+
+        cache_key = (response_format, normalized_text)
+        if self._is_short_cacheable(normalized_text):
+            cached = self._get_short_cache(cache_key)
+            if cached is not None:
+                return cached
+
+        result = self._synthesize_normalized(normalized_text, response_format=response_format)
+        if self._is_short_cacheable(normalized_text):
+            self._put_short_cache(cache_key, result)
+        return result
 
 
 def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynthesizer | None = None):
@@ -282,6 +341,11 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
             "reference_source_exists": resolved_settings.reference_source.is_file(),
             "reference_wav_exists": resolved_settings.reference_wav.is_file(),
             "sample_rate_hz": resolved_settings.response_sample_rate_hz,
+            "short_cache_enabled": resolved_settings.short_cache_enabled,
+            "short_cache_entries": resolved_synthesizer.short_cache_size()
+            if hasattr(resolved_synthesizer, "short_cache_size")
+            else 0,
+            "short_cache_max_chars": resolved_settings.short_cache_max_chars,
         }
 
     @app.post("/v1/audio/speech")

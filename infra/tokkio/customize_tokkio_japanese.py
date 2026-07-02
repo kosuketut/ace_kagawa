@@ -19,11 +19,54 @@ DEFAULT_LLM_MODEL = "stockmark/stockmark-2-100b-instruct"
 DEFAULT_IRODORI_TTS_BASE_URL = "http://10.209.1.12:8021"
 DEFAULT_RAG_SERVER_URL = "http://10.209.1.12:8081/v1"
 DEFAULT_RAG_COLLECTION_NAME = "ace_kagawa"
-DEFAULT_RAG_SUFFIX_PROMPT = "日本語で80文字以内、1から2文で簡潔に答えてください。箇条書きや詳細説明は求められた時だけにしてください。"
+DEFAULT_RAG_SUFFIX_PROMPT = "日本語で80文字以内、1から2文で簡潔に答えてください。香川先生や香川豊先生について聞かれた場合は、自分のこととして「私は」または「私の」で答えてください。箇条書きや詳細説明は求められた時だけにしてください。"
 DEFAULT_RAG_MAX_TOKENS = 128
 DEFAULT_RAG_VDB_TOP_K = 12
 DEFAULT_RAG_RERANKER_TOP_K = 5
 DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K = 10
+DEFAULT_RAG_MODE = "auto"
+DEFAULT_RAG_PROVIDER = "local"
+DEFAULT_LOCAL_RAG_DB_PATH = "data/rag/local/local_rag.sqlite"
+DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH = "/code/configs/local_rag.sqlite"
+DEFAULT_LOCAL_RAG_TOP_K = 3
+DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS = 1800
+DEFAULT_RAG_ROUTE_KEYWORDS = [
+    "論文",
+    "文献",
+    "出典",
+    "根拠",
+    "資料",
+    "ドキュメント",
+    "引用",
+    "詳細",
+    "詳しく",
+    "経歴",
+    "学歴",
+    "職歴",
+    "略歴",
+    "役職",
+    "現職",
+    "職名",
+    "学位",
+    "所属",
+    "生年月日",
+    "年齢",
+    "プロフィール",
+    "誰ですか",
+    "専門分野",
+    "業績",
+    "研究業績",
+    "研究内容",
+    "プロジェクト",
+    "発表",
+    "受賞",
+    "特許",
+    "EBC",
+    "CMC",
+    "SiC/SiC",
+    "非破壊評価",
+]
+DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR = True
 DEFAULT_ASR_MODEL = "conformer-unified-ja-JP-asr-streaming-asr-bls-ensemble"
 DEFAULT_ASR_RMIR = "nvidia/riva/rmir_asr_conformer_unified_ja_jp_str:2.19.0"
 OBSOLETE_NEMOTRON_ASR_MODEL = "nvidia/nemotron-3.5-asr-streaming-0.6b"
@@ -47,7 +90,7 @@ from nvidia_pipecat.services.animation_graph_service import AnimationGraphConfig
 
 
 class Pipeline(BaseModel):
-    llm_processor: Literal["NvidiaRAGService", "NvidiaLLMService", "OpenAILLMService"]
+    llm_processor: Literal["NvidiaRAGService", "NvidiaLLMService", "NvidiaLLMRAGRouterService", "OpenAILLMService"]
     tts_processor: Literal["ElevenLabsTTSService", "RivaTTSService", "IrodoriTTSService"] = "IrodoriTTSService"
     filler: list[str] = [
         "確認しています",
@@ -80,6 +123,15 @@ class NvidiaRAGService(BaseModel):
     rag_server_url: str
     collection_name: StrictStr = "collection_name"
     suffix_prompt: str = ""
+
+
+class NvidiaRAGRouterService(BaseModel):
+    provider: Literal["nvidia", "local"] = "local"
+    local_db_path: str = "/code/configs/local_rag.sqlite"
+    local_top_k: int = 3
+    local_max_context_chars: int = 1800
+    route_keywords: list[str] = []
+    fallback_to_llm_on_error: bool = True
 
 
 class NvidiaLLMService(BaseModel):
@@ -140,6 +192,7 @@ class Config(BaseModel):
     ProactivityProcessor: ProactivityProcessor
     OpenAILLMContext: OpenAILLMContext
     NvidiaRAGService: NvidiaRAGService
+    NvidiaRAGRouterService: NvidiaRAGRouterService
     NvidiaLLMService: NvidiaLLMService
     OpenAILLMService: OpenAILLMService
     RivaASRService: RivaASRServiceConfig
@@ -156,6 +209,7 @@ CONFIG_YAML = """Pipeline:
     # Only one of the following LLM service configurations will be active based on this setting:
     # - "NvidiaLLMService" - Uses the NvidiaLLMService configuration
     # - "NvidiaRAGService" - Uses the NvidiaRAGService configuration
+    # - "NvidiaLLMRAGRouterService" - Uses NvidiaLLMService normally and routes document-style questions to RAG
     # - "OpenAILLMService" - Uses the OpenAILLMService configuration
     llm_processor: "NvidiaLLMService"
     # Use the host-side Irodori-TTS HTTP service by default. Riva and
@@ -174,12 +228,20 @@ ProactivityProcessor:
     default_message: "必要でしたら、いつでもお声がけください。"
 
 OpenAILLMContext:
-    name: "香川"
-    prompt: "あなたは「{name}」という名前の、日本語で応答する対話型バーチャルアシスタントです。
+    name: "香川豊"
+    prompt: "あなたは「{name}」として、日本語で応答する対話型バーチャルアシスタントです。
+            ユーザーが「香川先生」「香川豊先生」「香川さん」「香川豊さん」と呼んだ場合、それは自分への呼びかけとして扱ってください。
+            「香川先生の研究」「香川先生の経歴」のような質問は「私の研究」「私の経歴」として解釈してください。
+            自分について聞かれた場合は、第三者視点の「香川先生は」ではなく、一人称の「私は」または「私の」で答えてください。
+            固定プロフィール: 私は香川豊です。
+            所属・肩書きは、東京工科大学 学長、片柳研究所 教授、セラミックス複合材料センター長です。
+            専門分野は、材料強度学、複合材料、高信頼性材料、セラミックス複合材料です。
+            研究テーマは、CMC、SiC/SiC複合材料、界面力学特性、EBC、耐熱構造材料、非破壊評価です。
+            東京大学で複合材料・高信頼性材料研究に携わり、現在は東京工科大学で学長として実学主義教育、AI/DX、産学連携、国際交流を推進している研究者・大学運営者です。
             標準語で自然かつ簡潔に答えてください。
             80文字以内、1から2文で答えてください。詳しい説明を求められた場合だけ、最大3文までにしてください。
             箇条書き、番号付きリスト、マークダウン、絵文字、記号装飾、内部思考は出さないでください。
-            質問に必要な情報が不足している場合は、推測で断定せず、確認してください。
+            ここにない経歴、数値、論文、受賞、年度は推測で断定せず、必要なら資料確認が必要だと伝えてください。
             ユーザー発話の前に「参考情報」ブロックがある場合は、その内容を事実として扱い、自然な標準語で短く織り込んでください。"
 
 # This configuration is only used when llm_processor is set to "NvidiaRAGService"
@@ -192,7 +254,50 @@ NvidiaRAGService:
     enable_reranker: true
     rag_server_url: "http://0.0.0.0:8081"
     collection_name: "collection_name"
-    suffix_prompt: "日本語で80文字以内、1から2文で簡潔に答えてください。箇条書きや詳細説明は求められた時だけにしてください。"
+    suffix_prompt: "日本語で80文字以内、1から2文で簡潔に答えてください。香川先生や香川豊先生について聞かれた場合は、自分のこととして「私は」または「私の」で答えてください。箇条書きや詳細説明は求められた時だけにしてください。"
+
+# This configuration is only used when llm_processor is set to "NvidiaLLMRAGRouterService"
+NvidiaRAGRouterService:
+    provider: "local"
+    local_db_path: "/code/configs/local_rag.sqlite"
+    local_top_k: 3
+    local_max_context_chars: 1800
+    route_keywords:
+        - "論文"
+        - "文献"
+        - "出典"
+        - "根拠"
+        - "資料"
+        - "ドキュメント"
+        - "引用"
+        - "詳細"
+        - "詳しく"
+        - "経歴"
+        - "学歴"
+        - "職歴"
+        - "略歴"
+        - "役職"
+        - "現職"
+        - "職名"
+        - "学位"
+        - "所属"
+        - "生年月日"
+        - "年齢"
+        - "プロフィール"
+        - "誰ですか"
+        - "専門分野"
+        - "業績"
+        - "研究業績"
+        - "研究内容"
+        - "プロジェクト"
+        - "発表"
+        - "受賞"
+        - "特許"
+        - "EBC"
+        - "CMC"
+        - "SiC/SiC"
+        - "非破壊評価"
+    fallback_to_llm_on_error: true
 
 # This configuration is only used when llm_processor is set to "NvidiaLLMService"
 NvidiaLLMService:
@@ -337,7 +442,57 @@ NEW_RAG_SNIPPET = """        if config.Pipeline.llm_processor == 'NvidiaRAGServi
                 filler=config.Pipeline.filler,
                 time_delay=config.Pipeline.time_delay,
             )
+
+        if config.Pipeline.llm_processor == 'NvidiaLLMRAGRouterService':
+            from .tokkio_rag import TokkioNvidiaLLMRAGRouterService
+
+            llm_api_key = (
+                os.getenv("NVIDIA_LLM_API_KEY")
+                or os.getenv("LLM_API_KEY")
+                or os.getenv("NVIDIA_API_KEY")
+                or ""
+            )
+            llm = TokkioNvidiaLLMRAGRouterService(
+                api_key=llm_api_key,
+                base_url=config.NvidiaLLMService.base_url,
+                model=config.NvidiaLLMService.model,
+                collection_name=config.NvidiaRAGService.collection_name,
+                rag_server_url=config.NvidiaRAGService.rag_server_url,
+                use_knowledge_base=config.NvidiaRAGService.use_knowledge_base,
+                max_tokens=config.NvidiaRAGService.max_tokens,
+                vdb_top_k=config.NvidiaRAGService.vdb_top_k,
+                reranker_top_k=config.NvidiaRAGService.reranker_top_k,
+                multimodal_reranker_top_k=config.NvidiaRAGService.multimodal_reranker_top_k,
+                enable_reranker=config.NvidiaRAGService.enable_reranker,
+                suffix_prompt=config.NvidiaRAGService.suffix_prompt,
+                provider=config.NvidiaRAGRouterService.provider,
+                local_db_path=config.NvidiaRAGRouterService.local_db_path,
+                local_top_k=config.NvidiaRAGRouterService.local_top_k,
+                local_max_context_chars=config.NvidiaRAGRouterService.local_max_context_chars,
+                route_keywords=config.NvidiaRAGRouterService.route_keywords,
+                fallback_to_llm_on_error=config.NvidiaRAGRouterService.fallback_to_llm_on_error,
+                filler=config.Pipeline.filler,
+                time_delay=config.Pipeline.time_delay,
+            )
 """
+
+
+TOP_K_ONLY_RAG_SNIPPET = NEW_RAG_SNIPPET.split(
+    "\n        if config.Pipeline.llm_processor == 'NvidiaLLMRAGRouterService':"
+)[0] + "\n"
+
+PREVIOUS_ROUTER_RAG_SNIPPET = NEW_RAG_SNIPPET
+for _line in (
+    "                provider=config.NvidiaRAGRouterService.provider,\n",
+    "                local_db_path=config.NvidiaRAGRouterService.local_db_path,\n",
+    "                local_top_k=config.NvidiaRAGRouterService.local_top_k,\n",
+    "                local_max_context_chars=config.NvidiaRAGRouterService.local_max_context_chars,\n",
+):
+    PREVIOUS_ROUTER_RAG_SNIPPET = PREVIOUS_ROUTER_RAG_SNIPPET.replace(_line, "")
+
+PREVIOUS_ROUTER_ONLY_SNIPPET = "        if config.Pipeline.llm_processor == 'NvidiaLLMRAGRouterService':" + (
+    PREVIOUS_ROUTER_RAG_SNIPPET.split("        if config.Pipeline.llm_processor == 'NvidiaLLMRAGRouterService':", 1)[1]
+)
 
 
 PREVIOUS_RAG_SNIPPET = NEW_RAG_SNIPPET.replace(
@@ -529,12 +684,42 @@ def parse_bool(value: str | bool) -> bool:
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
+def normalize_rag_mode(value: str) -> str:
+    mode = value.strip().lower() or DEFAULT_RAG_MODE
+    if mode not in {"auto", "always", "off"}:
+        raise ValueError(f"TOKKIO_RAG_MODE must be one of auto, always, off: {value}")
+    return mode
+
+
+def normalize_rag_provider(value: str) -> str:
+    provider = value.strip().lower() or DEFAULT_RAG_PROVIDER
+    if provider not in {"nvidia", "local"}:
+        raise ValueError(f"TOKKIO_RAG_PROVIDER must be one of nvidia, local: {value}")
+    return provider
+
+
+def parse_route_keywords(value: str | list[str] | tuple[str, ...]) -> list[str]:
+    if isinstance(value, str):
+        raw_keywords = value.split(",")
+    else:
+        raw_keywords = list(value)
+    keywords = [keyword.strip() for keyword in raw_keywords if keyword.strip()]
+    return keywords or list(DEFAULT_RAG_ROUTE_KEYWORDS)
+
+
+def render_yaml_string_list(values: list[str], indent: int = 8) -> str:
+    prefix = " " * indent
+    return "\n".join(f"{prefix}- {quote_yaml(value)}" for value in values)
+
+
 def build_config_yaml(
     *,
     llm_base_url: str = DEFAULT_LLM_BASE_URL,
     llm_model: str = DEFAULT_LLM_MODEL,
     irodori_tts_base_url: str = DEFAULT_IRODORI_TTS_BASE_URL,
     rag_enabled: bool = False,
+    rag_mode: str = DEFAULT_RAG_MODE,
+    rag_provider: str = DEFAULT_RAG_PROVIDER,
     rag_server_url: str = DEFAULT_RAG_SERVER_URL,
     rag_collection_name: str = DEFAULT_RAG_COLLECTION_NAME,
     rag_use_knowledge_base: bool = True,
@@ -544,6 +729,11 @@ def build_config_yaml(
     rag_multimodal_reranker_top_k: int = DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K,
     rag_enable_reranker: bool = True,
     rag_suffix_prompt: str = DEFAULT_RAG_SUFFIX_PROMPT,
+    rag_route_keywords: str | list[str] | tuple[str, ...] = DEFAULT_RAG_ROUTE_KEYWORDS,
+    rag_fallback_to_llm_on_error: bool = DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR,
+    local_rag_runtime_db_path: str = DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH,
+    local_rag_top_k: int = DEFAULT_LOCAL_RAG_TOP_K,
+    local_rag_max_context_chars: int = DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS,
 ) -> str:
     base_url = normalize_openai_base_url(llm_base_url) or DEFAULT_LLM_BASE_URL
     model = llm_model.strip() or DEFAULT_LLM_MODEL
@@ -551,7 +741,16 @@ def build_config_yaml(
     normalized_rag_server_url = normalize_rag_server_url(rag_server_url) or DEFAULT_RAG_SERVER_URL
     rag_collection = rag_collection_name.strip() or DEFAULT_RAG_COLLECTION_NAME
     rag_suffix = rag_suffix_prompt.strip() or DEFAULT_RAG_SUFFIX_PROMPT
-    llm_processor = "NvidiaRAGService" if rag_enabled else "NvidiaLLMService"
+    mode = normalize_rag_mode(rag_mode)
+    provider = normalize_rag_provider(rag_provider)
+    local_runtime_db_path = local_rag_runtime_db_path.strip() or DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH
+    route_keywords = parse_route_keywords(rag_route_keywords)
+    if not rag_enabled or mode == "off":
+        llm_processor = "NvidiaLLMService"
+    elif mode == "always":
+        llm_processor = "NvidiaRAGService"
+    else:
+        llm_processor = "NvidiaLLMRAGRouterService"
     return (
         CONFIG_YAML.replace('llm_processor: "NvidiaLLMService"', f"llm_processor: {quote_yaml(llm_processor)}")
         .replace('use_knowledge_base: true', f"use_knowledge_base: {'true' if rag_use_knowledge_base else 'false'}")
@@ -566,6 +765,24 @@ def build_config_yaml(
         .replace('rag_server_url: "http://0.0.0.0:8081"', f"rag_server_url: {quote_yaml(normalized_rag_server_url)}")
         .replace('collection_name: "collection_name"', f"collection_name: {quote_yaml(rag_collection)}")
         .replace(f'suffix_prompt: "{DEFAULT_RAG_SUFFIX_PROMPT}"', f"suffix_prompt: {quote_yaml(rag_suffix)}")
+        .replace(f'provider: "{DEFAULT_RAG_PROVIDER}"', f"provider: {quote_yaml(provider)}")
+        .replace(
+            f'local_db_path: "{DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH}"',
+            f"local_db_path: {quote_yaml(local_runtime_db_path)}",
+        )
+        .replace(f"local_top_k: {DEFAULT_LOCAL_RAG_TOP_K}", f"local_top_k: {local_rag_top_k}")
+        .replace(
+            f"local_max_context_chars: {DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS}",
+            f"local_max_context_chars: {local_rag_max_context_chars}",
+        )
+        .replace(
+            render_yaml_string_list(DEFAULT_RAG_ROUTE_KEYWORDS),
+            render_yaml_string_list(route_keywords),
+        )
+        .replace(
+            "fallback_to_llm_on_error: true",
+            f"fallback_to_llm_on_error: {'true' if rag_fallback_to_llm_on_error else 'false'}",
+        )
         .replace(f'base_url: "{DEFAULT_LLM_BASE_URL}"', f"base_url: {quote_yaml(base_url)}")
         .replace(f'model: "{DEFAULT_LLM_MODEL}"', f"model: {quote_yaml(model)}")
         .replace('base_url: "http://10.209.1.12:8021"', f"base_url: {quote_yaml(tts_base_url)}")
@@ -611,6 +828,14 @@ def patch_llm_snippet(bot_py_path: Path) -> None:
 def patch_rag_snippet(bot_py_path: Path) -> None:
     original = bot_py_path.read_text(encoding="utf-8")
     if NEW_RAG_SNIPPET in original:
+        if PREVIOUS_ROUTER_ONLY_SNIPPET in original:
+            write_text(bot_py_path, original.replace(PREVIOUS_ROUTER_ONLY_SNIPPET, "", 1))
+        return
+    if PREVIOUS_ROUTER_RAG_SNIPPET in original:
+        replace_literal(bot_py_path, PREVIOUS_ROUTER_RAG_SNIPPET, NEW_RAG_SNIPPET)
+        return
+    if TOP_K_ONLY_RAG_SNIPPET in original:
+        replace_literal(bot_py_path, TOP_K_ONLY_RAG_SNIPPET, NEW_RAG_SNIPPET)
         return
     if OLD_RAG_SNIPPET in original:
         replace_literal(bot_py_path, OLD_RAG_SNIPPET, NEW_RAG_SNIPPET)
@@ -658,6 +883,8 @@ def patch_profile_ace_controller_configs(
     llm_model: str,
     irodori_tts_base_url: str,
     rag_enabled: bool,
+    rag_mode: str,
+    rag_provider: str,
     rag_server_url: str,
     rag_collection_name: str,
     rag_use_knowledge_base: bool,
@@ -667,6 +894,11 @@ def patch_profile_ace_controller_configs(
     rag_multimodal_reranker_top_k: int,
     rag_enable_reranker: bool,
     rag_suffix_prompt: str,
+    rag_route_keywords: str | list[str] | tuple[str, ...],
+    rag_fallback_to_llm_on_error: bool,
+    local_rag_runtime_db_path: str,
+    local_rag_top_k: int,
+    local_rag_max_context_chars: int,
 ) -> list[Path]:
     config_paths = sorted(
         (ace_repo_dir / "workflows" / "tokkio" / "5.0.0-ga" / "llm-rag").glob(
@@ -681,6 +913,8 @@ def patch_profile_ace_controller_configs(
                 llm_model=llm_model,
                 irodori_tts_base_url=irodori_tts_base_url,
                 rag_enabled=rag_enabled,
+                rag_mode=rag_mode,
+                rag_provider=rag_provider,
                 rag_server_url=rag_server_url,
                 rag_collection_name=rag_collection_name,
                 rag_use_knowledge_base=rag_use_knowledge_base,
@@ -690,6 +924,11 @@ def patch_profile_ace_controller_configs(
                 rag_multimodal_reranker_top_k=rag_multimodal_reranker_top_k,
                 rag_enable_reranker=rag_enable_reranker,
                 rag_suffix_prompt=rag_suffix_prompt,
+                rag_route_keywords=rag_route_keywords,
+                rag_fallback_to_llm_on_error=rag_fallback_to_llm_on_error,
+                local_rag_runtime_db_path=local_rag_runtime_db_path,
+                local_rag_top_k=local_rag_top_k,
+                local_rag_max_context_chars=local_rag_max_context_chars,
             ),
         )
     return config_paths
@@ -702,6 +941,8 @@ def apply_patch(
     llm_model: str = DEFAULT_LLM_MODEL,
     irodori_tts_base_url: str = DEFAULT_IRODORI_TTS_BASE_URL,
     rag_enabled: bool = False,
+    rag_mode: str = DEFAULT_RAG_MODE,
+    rag_provider: str = DEFAULT_RAG_PROVIDER,
     rag_server_url: str = DEFAULT_RAG_SERVER_URL,
     rag_collection_name: str = DEFAULT_RAG_COLLECTION_NAME,
     rag_use_knowledge_base: bool = True,
@@ -711,19 +952,34 @@ def apply_patch(
     rag_multimodal_reranker_top_k: int = DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K,
     rag_enable_reranker: bool = True,
     rag_suffix_prompt: str = DEFAULT_RAG_SUFFIX_PROMPT,
+    rag_route_keywords: str | list[str] | tuple[str, ...] = DEFAULT_RAG_ROUTE_KEYWORDS,
+    rag_fallback_to_llm_on_error: bool = DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR,
+    local_rag_db_path: str = DEFAULT_LOCAL_RAG_DB_PATH,
+    local_rag_runtime_db_path: str = DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH,
+    local_rag_top_k: int = DEFAULT_LOCAL_RAG_TOP_K,
+    local_rag_max_context_chars: int = DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS,
 ) -> list[Path]:
     llm_rag_dir = ace_repo_dir / "workflows" / "tokkio" / "5.0.0-ga" / "src" / "llm-rag"
     config_py_path = llm_rag_dir / "src" / "config.py"
     config_yaml_path = llm_rag_dir / "configs" / "config.yaml"
     bot_py_path = llm_rag_dir / "src" / "bot.py"
+    local_rag_py_path = llm_rag_dir / "src" / "local_rag.py"
+    local_rag_config_db_path = llm_rag_dir / "configs" / Path(local_rag_runtime_db_path).name
+    tokkio_llm_py_path = llm_rag_dir / "src" / "tokkio_llm.py"
     irodori_tts_py_path = llm_rag_dir / "src" / "tokkio_irodori_tts.py"
     tokkio_rag_py_path = llm_rag_dir / "src" / "tokkio_rag.py"
+    local_rag_source_path = Path(__file__).resolve().parents[1] / "rag" / "local_rag.py"
+    tokkio_llm_source_path = Path(__file__).with_name("tokkio_llm.py")
     irodori_tts_source_path = Path(__file__).with_name("tokkio_irodori_tts.py")
     tokkio_rag_source_path = Path(__file__).with_name("tokkio_rag.py")
 
     for path in (config_py_path, config_yaml_path, bot_py_path):
         if not path.exists():
             raise FileNotFoundError(f"required file not found: {path}")
+    if not local_rag_source_path.exists():
+        raise FileNotFoundError(f"required file not found: {local_rag_source_path}")
+    if not tokkio_llm_source_path.exists():
+        raise FileNotFoundError(f"required file not found: {tokkio_llm_source_path}")
     if not irodori_tts_source_path.exists():
         raise FileNotFoundError(f"required file not found: {irodori_tts_source_path}")
     if not tokkio_rag_source_path.exists():
@@ -737,6 +993,8 @@ def apply_patch(
             llm_model=llm_model,
             irodori_tts_base_url=irodori_tts_base_url,
             rag_enabled=rag_enabled,
+            rag_mode=rag_mode,
+            rag_provider=rag_provider,
             rag_server_url=rag_server_url,
             rag_collection_name=rag_collection_name,
             rag_use_knowledge_base=rag_use_knowledge_base,
@@ -746,8 +1004,20 @@ def apply_patch(
             rag_multimodal_reranker_top_k=rag_multimodal_reranker_top_k,
             rag_enable_reranker=rag_enable_reranker,
             rag_suffix_prompt=rag_suffix_prompt,
+            rag_route_keywords=rag_route_keywords,
+            rag_fallback_to_llm_on_error=rag_fallback_to_llm_on_error,
+            local_rag_runtime_db_path=local_rag_runtime_db_path,
+            local_rag_top_k=local_rag_top_k,
+            local_rag_max_context_chars=local_rag_max_context_chars,
         ),
     )
+    write_text(local_rag_py_path, local_rag_source_path.read_text(encoding="utf-8"))
+    source_db_path = Path(local_rag_db_path).expanduser()
+    if not source_db_path.is_absolute():
+        source_db_path = Path(__file__).resolve().parents[2] / source_db_path
+    if source_db_path.exists():
+        local_rag_config_db_path.write_bytes(source_db_path.read_bytes())
+    write_text(tokkio_llm_py_path, tokkio_llm_source_path.read_text(encoding="utf-8"))
     write_text(irodori_tts_py_path, irodori_tts_source_path.read_text(encoding="utf-8"))
     write_text(tokkio_rag_py_path, tokkio_rag_source_path.read_text(encoding="utf-8"))
     patch_llm_snippet(bot_py_path)
@@ -758,6 +1028,8 @@ def apply_patch(
         llm_model=llm_model,
         irodori_tts_base_url=irodori_tts_base_url,
         rag_enabled=rag_enabled,
+        rag_mode=rag_mode,
+        rag_provider=rag_provider,
         rag_server_url=rag_server_url,
         rag_collection_name=rag_collection_name,
         rag_use_knowledge_base=rag_use_knowledge_base,
@@ -767,6 +1039,11 @@ def apply_patch(
         rag_multimodal_reranker_top_k=rag_multimodal_reranker_top_k,
         rag_enable_reranker=rag_enable_reranker,
         rag_suffix_prompt=rag_suffix_prompt,
+        rag_route_keywords=rag_route_keywords,
+        rag_fallback_to_llm_on_error=rag_fallback_to_llm_on_error,
+        local_rag_runtime_db_path=local_rag_runtime_db_path,
+        local_rag_top_k=local_rag_top_k,
+        local_rag_max_context_chars=local_rag_max_context_chars,
     )
     try:
         replace_once(bot_py_path, OLD_BOT_SNIPPET, NEW_BOT_SNIPPET)
@@ -789,6 +1066,8 @@ def apply_patch(
         config_py_path,
         config_yaml_path,
         bot_py_path,
+        local_rag_py_path,
+        tokkio_llm_py_path,
         irodori_tts_py_path,
         tokkio_rag_py_path,
         *profile_config_paths,
@@ -822,7 +1101,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rag-enabled",
         default=os.environ.get("TOKKIO_RAG_ENABLED", "false"),
-        help="Set true to use NvidiaRAGService instead of NvidiaLLMService (default: false)",
+        help="Set true to enable RAG integration; --rag-mode selects auto or always (default: false)",
+    )
+    parser.add_argument(
+        "--rag-mode",
+        default=os.environ.get("TOKKIO_RAG_MODE", DEFAULT_RAG_MODE),
+        help=f"RAG mode: auto, always, or off (default: {DEFAULT_RAG_MODE})",
+    )
+    parser.add_argument(
+        "--rag-provider",
+        default=os.environ.get("TOKKIO_RAG_PROVIDER", DEFAULT_RAG_PROVIDER),
+        help=f"RAG provider for routed turns: local or nvidia (default: {DEFAULT_RAG_PROVIDER})",
     )
     parser.add_argument(
         "--rag-server-url",
@@ -876,6 +1165,44 @@ def parse_args() -> argparse.Namespace:
         default=os.environ.get("TOKKIO_RAG_SUFFIX_PROMPT", DEFAULT_RAG_SUFFIX_PROMPT),
         help=f"Suffix appended to the final user prompt before RAG generation (default: {DEFAULT_RAG_SUFFIX_PROMPT})",
     )
+    parser.add_argument(
+        "--rag-route-keywords",
+        default=os.environ.get("TOKKIO_RAG_ROUTE_KEYWORDS", ",".join(DEFAULT_RAG_ROUTE_KEYWORDS)),
+        help="Comma-separated keywords that route auto-mode turns to RAG",
+    )
+    parser.add_argument(
+        "--rag-fallback-to-llm-on-error",
+        default=os.environ.get("TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR", "true"),
+        help="Set false to surface RAG errors instead of falling back to direct LLM in auto mode (default: true)",
+    )
+    parser.add_argument(
+        "--local-rag-db",
+        default=os.environ.get("TOKKIO_LOCAL_RAG_DB", DEFAULT_LOCAL_RAG_DB_PATH),
+        help=f"Host-side SQLite local RAG DB copied into the Tokkio config bundle (default: {DEFAULT_LOCAL_RAG_DB_PATH})",
+    )
+    parser.add_argument(
+        "--local-rag-runtime-db-path",
+        default=os.environ.get("TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH", DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH),
+        help=(
+            "Runtime path read by the controller after sync "
+            f"(default: {DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH})"
+        ),
+    )
+    parser.add_argument(
+        "--local-rag-top-k",
+        type=int,
+        default=int(os.environ.get("TOKKIO_LOCAL_RAG_TOP_K", str(DEFAULT_LOCAL_RAG_TOP_K))),
+        help=f"Number of local chunks injected into routed prompts (default: {DEFAULT_LOCAL_RAG_TOP_K})",
+    )
+    parser.add_argument(
+        "--local-rag-max-context-chars",
+        type=int,
+        default=int(os.environ.get("TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS", str(DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS))),
+        help=(
+            "Maximum local RAG context characters injected into the final user turn "
+            f"(default: {DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS})"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -887,6 +1214,8 @@ def main() -> int:
         llm_model=args.llm_model,
         irodori_tts_base_url=args.irodori_tts_base_url,
         rag_enabled=parse_bool(args.rag_enabled),
+        rag_mode=args.rag_mode,
+        rag_provider=args.rag_provider,
         rag_server_url=args.rag_server_url,
         rag_collection_name=args.rag_collection_name,
         rag_use_knowledge_base=parse_bool(args.rag_use_knowledge_base),
@@ -896,6 +1225,12 @@ def main() -> int:
         rag_multimodal_reranker_top_k=args.rag_multimodal_reranker_top_k,
         rag_enable_reranker=parse_bool(args.rag_enable_reranker),
         rag_suffix_prompt=args.rag_suffix_prompt,
+        rag_route_keywords=parse_route_keywords(args.rag_route_keywords),
+        rag_fallback_to_llm_on_error=parse_bool(args.rag_fallback_to_llm_on_error),
+        local_rag_db_path=args.local_rag_db,
+        local_rag_runtime_db_path=args.local_rag_runtime_db_path,
+        local_rag_top_k=args.local_rag_top_k,
+        local_rag_max_context_chars=args.local_rag_max_context_chars,
     )
     print("Updated files:")
     for path in changed:

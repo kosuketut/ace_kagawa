@@ -17,8 +17,11 @@ Environment=IRODORI_TTS_VOICE=kagawa
 Environment=IRODORI_TTS_MODEL_DEVICE=cuda:0
 Environment=IRODORI_TTS_CODEC_DEVICE=cuda:0
 Environment=IRODORI_TTS_MODEL_PRECISION=bf16
-Environment=IRODORI_TTS_NUM_STEPS=40
+Environment=IRODORI_TTS_NUM_STEPS=28
 Environment=IRODORI_TTS_DURATION_SCALE=1.0
+Environment=IRODORI_TTS_SHORT_CACHE_ENABLED=true
+Environment=IRODORI_TTS_SHORT_CACHE_MAX_CHARS=40
+Environment=IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES=128
 Environment=IRODORI_TTS_REFERENCE_SOURCE=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS/data/kagawa_voice.m4a
 Environment=IRODORI_TTS_REFERENCE_WAV=/data/ACE/irodori/reference/kagawa_voice_ref_48k_mono.wav
 Environment=CUDA_VISIBLE_DEVICES=0

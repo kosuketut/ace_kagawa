@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,25 @@ EXPECTED_RAG_MAX_TOKENS = 128
 EXPECTED_RAG_VDB_TOP_K = 12
 EXPECTED_RAG_RERANKER_TOP_K = 5
 EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K = 10
+EXPECTED_RAG_MODE = "auto"
+EXPECTED_RAG_ROUTE_KEYWORDS = ["論文", "資料", "EBC", "SiC/SiC"]
+EXPECTED_KAGAWA_PROFILE_ROUTE_KEYWORDS = [
+    "専門分野",
+    "学歴",
+    "職歴",
+    "役職",
+    "現職",
+    "学位",
+    "所属",
+    "生年月日",
+    "年齢",
+    "誰ですか",
+]
+EXPECTED_RAG_PROVIDER = "local"
+EXPECTED_LOCAL_RAG_DB = "data/rag/local/local_rag.sqlite"
+EXPECTED_LOCAL_RAG_RUNTIME_DB = "/code/configs/local_rag.sqlite"
+EXPECTED_LOCAL_RAG_TOP_K = 3
+EXPECTED_LOCAL_RAG_MAX_CONTEXT_CHARS = 1800
 
 
 def load_module(name: str, path: Path):
@@ -32,6 +52,57 @@ def load_module(name: str, path: Path):
 
 prepare = load_module("prepare_tokkio_workspace", ROOT / "infra" / "tokkio" / "prepare_tokkio_workspace.py")
 customize = load_module("customize_tokkio_japanese", ROOT / "infra" / "tokkio" / "customize_tokkio_japanese.py")
+
+
+def install_stub_module(name: str) -> types.ModuleType:
+    module = types.ModuleType(name)
+    if "." not in name:
+        module.__path__ = []
+    sys.modules[name] = module
+    return module
+
+
+def load_tokkio_llm_with_stubs():
+    class Logger:
+        def debug(self, *_args, **_kwargs):
+            pass
+
+        def warning(self, *_args, **_kwargs):
+            pass
+
+        def error(self, *_args, **_kwargs):
+            pass
+
+    class Frame:
+        def __init__(self, content=""):
+            self.content = content
+
+    class BaseLLMService:
+        pass
+
+    loguru = install_stub_module("loguru")
+    loguru.logger = Logger()
+
+    install_stub_module("nvidia_pipecat")
+    install_stub_module("nvidia_pipecat.services")
+    nvidia_llm = install_stub_module("nvidia_pipecat.services.nvidia_llm")
+    nvidia_llm.NvidiaLLMService = BaseLLMService
+
+    install_stub_module("pipecat")
+    install_stub_module("pipecat.frames")
+    frames = install_stub_module("pipecat.frames.frames")
+    frames.TextFrame = Frame
+    frames.TTSSpeakFrame = Frame
+    install_stub_module("pipecat.processors")
+    install_stub_module("pipecat.processors.aggregators")
+    openai_context = install_stub_module("pipecat.processors.aggregators.openai_llm_context")
+    openai_context.OpenAILLMContext = object
+    install_stub_module("pipecat.services")
+    install_stub_module("pipecat.services.openai")
+    openai_llm = install_stub_module("pipecat.services.openai.llm")
+    openai_llm.OpenAILLMService = BaseLLMService
+
+    return load_module("tokkio_llm_fast_reply_test", ROOT / "infra" / "tokkio" / "tokkio_llm.py")
 
 
 class TokkioLlmConfigTests(unittest.TestCase):
@@ -86,11 +157,23 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(settings.reranker_top_k, EXPECTED_RAG_RERANKER_TOP_K)
         self.assertEqual(settings.multimodal_reranker_top_k, EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K)
         self.assertTrue(settings.enable_reranker)
+        self.assertEqual(settings.mode, EXPECTED_RAG_MODE)
+        self.assertIn("論文", settings.route_keywords)
+        self.assertIn("SiC/SiC", settings.route_keywords)
+        for keyword in EXPECTED_KAGAWA_PROFILE_ROUTE_KEYWORDS:
+            self.assertIn(keyword, settings.route_keywords)
+        self.assertTrue(settings.fallback_to_llm_on_error)
+        self.assertEqual(settings.provider, EXPECTED_RAG_PROVIDER)
+        self.assertEqual(settings.local_db_path, EXPECTED_LOCAL_RAG_DB)
+        self.assertEqual(settings.local_runtime_db_path, EXPECTED_LOCAL_RAG_RUNTIME_DB)
+        self.assertEqual(settings.local_top_k, EXPECTED_LOCAL_RAG_TOP_K)
+        self.assertEqual(settings.local_max_context_chars, EXPECTED_LOCAL_RAG_MAX_CONTEXT_CHARS)
 
     def test_resolve_rag_settings_normalizes_url_and_bool_values(self) -> None:
         settings = prepare.resolve_rag_settings(
             {
                 "TOKKIO_RAG_ENABLED": "true",
+                "TOKKIO_RAG_PROVIDER": "nvidia",
                 "TOKKIO_RAG_SERVER_URL": "http://192.0.2.10:8081",
                 "TOKKIO_RAG_COLLECTION_NAME": "manuals",
                 "TOKKIO_RAG_USE_KNOWLEDGE_BASE": "false",
@@ -99,10 +182,19 @@ class TokkioLlmConfigTests(unittest.TestCase):
                 "TOKKIO_RAG_RERANKER_TOP_K": "6",
                 "TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K": "10",
                 "TOKKIO_RAG_ENABLE_RERANKER": "false",
+                "TOKKIO_RAG_MODE": "always",
+                "TOKKIO_RAG_ROUTE_KEYWORDS": "論文, 資料, EBC, SiC/SiC",
+                "TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR": "false",
+                "TOKKIO_LOCAL_RAG_DB": "/tmp/custom-local.sqlite",
+                "TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH": "/code/configs/custom-local.sqlite",
+                "TOKKIO_LOCAL_RAG_TOP_K": "4",
+                "TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS": "1200",
             }
         )
 
         self.assertTrue(settings.enabled)
+        self.assertEqual(settings.mode, "always")
+        self.assertEqual(settings.provider, "nvidia")
         self.assertEqual(settings.server_url, "http://192.0.2.10:8081/v1")
         self.assertEqual(settings.collection_name, "manuals")
         self.assertFalse(settings.use_knowledge_base)
@@ -111,6 +203,20 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(settings.reranker_top_k, 6)
         self.assertEqual(settings.multimodal_reranker_top_k, 10)
         self.assertFalse(settings.enable_reranker)
+        self.assertEqual(settings.route_keywords, EXPECTED_RAG_ROUTE_KEYWORDS)
+        self.assertFalse(settings.fallback_to_llm_on_error)
+        self.assertEqual(settings.local_db_path, "/tmp/custom-local.sqlite")
+        self.assertEqual(settings.local_runtime_db_path, "/code/configs/custom-local.sqlite")
+        self.assertEqual(settings.local_top_k, 4)
+        self.assertEqual(settings.local_max_context_chars, 1200)
+
+    def test_resolve_rag_settings_rejects_unknown_mode(self) -> None:
+        with self.assertRaisesRegex(ValueError, "TOKKIO_RAG_MODE"):
+            prepare.resolve_rag_settings({"TOKKIO_RAG_ENABLED": "true", "TOKKIO_RAG_MODE": "sometimes"})
+
+    def test_resolve_rag_settings_rejects_unknown_provider(self) -> None:
+        with self.assertRaisesRegex(ValueError, "TOKKIO_RAG_PROVIDER"):
+            prepare.resolve_rag_settings({"TOKKIO_RAG_ENABLED": "true", "TOKKIO_RAG_PROVIDER": "remote"})
 
     def test_custom_config_yaml_uses_stockmark_nim_endpoint_and_model(self) -> None:
         yaml_text = customize.build_config_yaml()
@@ -128,6 +234,7 @@ class TokkioLlmConfigTests(unittest.TestCase):
     def test_custom_config_yaml_can_enable_rag_processor(self) -> None:
         yaml_text = customize.build_config_yaml(
             rag_enabled=True,
+            rag_mode="always",
             rag_server_url="http://10.209.1.12:8081",
             rag_collection_name="ace_kagawa",
             rag_max_tokens=512,
@@ -142,15 +249,77 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn(f"multimodal_reranker_top_k: {EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K}", yaml_text)
         self.assertIn("enable_reranker: true", yaml_text)
 
+    def test_custom_config_yaml_can_enable_auto_rag_router(self) -> None:
+        yaml_text = customize.build_config_yaml(
+            rag_enabled=True,
+            rag_mode="auto",
+            rag_route_keywords=EXPECTED_RAG_ROUTE_KEYWORDS,
+        )
+
+        self.assertIn('llm_processor: "NvidiaLLMRAGRouterService"', yaml_text)
+        self.assertIn("NvidiaRAGRouterService:", yaml_text)
+        self.assertIn('provider: "local"', yaml_text)
+        self.assertIn(f'local_db_path: "{EXPECTED_LOCAL_RAG_RUNTIME_DB}"', yaml_text)
+        self.assertIn(f"local_top_k: {EXPECTED_LOCAL_RAG_TOP_K}", yaml_text)
+        self.assertIn(f"local_max_context_chars: {EXPECTED_LOCAL_RAG_MAX_CONTEXT_CHARS}", yaml_text)
+        self.assertIn('        - "論文"', yaml_text)
+        self.assertIn('        - "SiC/SiC"', yaml_text)
+        self.assertIn("fallback_to_llm_on_error: true", yaml_text)
+
+    def test_custom_config_yaml_routes_kagawa_profile_detail_questions_by_default(self) -> None:
+        yaml_text = customize.build_config_yaml(rag_enabled=True, rag_mode="auto")
+
+        for keyword in EXPECTED_KAGAWA_PROFILE_ROUTE_KEYWORDS:
+            self.assertIn(f'        - "{keyword}"', yaml_text)
+
+    def test_custom_config_yaml_can_force_rag_off_even_when_enabled(self) -> None:
+        yaml_text = customize.build_config_yaml(rag_enabled=True, rag_mode="off")
+
+        self.assertIn('llm_processor: "NvidiaLLMService"', yaml_text)
+
+    def test_tokkio_llm_fast_replies_cover_greetings_and_name_only(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        self.assertEqual(
+            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "おはようございます。"}]),
+            "おはようございます。",
+        )
+        self.assertEqual(
+            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "あなたの名前は？"}]),
+            "私は香川豊です。",
+        )
+        self.assertIsNone(
+            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生の論文の名前は？"}])
+        )
+        self.assertIsNone(
+            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生は誰ですか"}])
+        )
+        self.assertIsNone(
+            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生の名前と専門分野は？"}])
+        )
+        self.assertIsNone(
+            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生の年齢は？"}])
+        )
+
     def test_custom_config_yaml_uses_standard_japanese_prompt(self) -> None:
         yaml_text = customize.build_config_yaml()
 
-        self.assertIn('name: "香川"', yaml_text)
+        self.assertIn('name: "香川豊"', yaml_text)
         self.assertIn('tts_processor: "IrodoriTTSService"', yaml_text)
         self.assertIn("IrodoriTTSService:", yaml_text)
         self.assertIn('base_url: "http://10.209.1.12:8021"', yaml_text)
         self.assertIn('voice: "kagawa"', yaml_text)
-        self.assertIn("あなたは「{name}」という名前", yaml_text)
+        self.assertIn("あなたは「{name}」として", yaml_text)
+        self.assertIn("香川先生", yaml_text)
+        self.assertIn("自分への呼びかけ", yaml_text)
+        self.assertIn("私は", yaml_text)
+        self.assertIn("私の研究", yaml_text)
+        self.assertIn("私の経歴", yaml_text)
+        self.assertIn("自分のこととして", yaml_text)
+        self.assertIn("東京工科大学 学長", yaml_text)
+        self.assertIn("セラミックス複合材料センター長", yaml_text)
+        self.assertIn("SiC/SiC複合材料", yaml_text)
+        self.assertIn("AI/DX", yaml_text)
         self.assertIn("自然な標準語", yaml_text)
         self.assertNotIn("大阪弁", yaml_text)
         self.assertNotIn("大阪・住之江", yaml_text)
@@ -256,6 +425,39 @@ class TokkioLlmConfigTests(unittest.TestCase):
             self.assertIn(customize.NEW_RAG_SNIPPET, updated)
             self.assertIn("multimodal_reranker_top_k=config.NvidiaRAGService.multimodal_reranker_top_k", updated)
 
+    def test_patch_rag_snippet_updates_top_k_only_branch_to_router_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bot_path = Path(tmp) / "bot.py"
+            top_k_only_snippet = customize.NEW_RAG_SNIPPET.split(
+                "\n        if config.Pipeline.llm_processor == 'NvidiaLLMRAGRouterService':"
+            )[0] + "\n"
+            bot_path.write_text(top_k_only_snippet, encoding="utf-8")
+
+            customize.patch_rag_snippet(bot_path)
+
+            updated = bot_path.read_text(encoding="utf-8")
+            self.assertIn(customize.NEW_RAG_SNIPPET, updated)
+            self.assertIn("TokkioNvidiaLLMRAGRouterService", updated)
+
+    def test_patch_rag_snippet_replaces_previous_router_branch_without_duplication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bot_path = Path(tmp) / "bot.py"
+            previous_router_snippet = customize.NEW_RAG_SNIPPET
+            for line in (
+                "                provider=config.NvidiaRAGRouterService.provider,\n",
+                "                local_db_path=config.NvidiaRAGRouterService.local_db_path,\n",
+                "                local_top_k=config.NvidiaRAGRouterService.local_top_k,\n",
+                "                local_max_context_chars=config.NvidiaRAGRouterService.local_max_context_chars,\n",
+            ):
+                previous_router_snippet = previous_router_snippet.replace(line, "")
+            bot_path.write_text(previous_router_snippet, encoding="utf-8")
+
+            customize.patch_rag_snippet(bot_path)
+
+            updated = bot_path.read_text(encoding="utf-8")
+            self.assertIn(customize.NEW_RAG_SNIPPET, updated)
+            self.assertEqual(updated.count("if config.Pipeline.llm_processor == 'NvidiaLLMRAGRouterService':"), 1)
+
     def test_config_py_supports_irodori_tts_processor(self) -> None:
         self.assertIn('"IrodoriTTSService"', customize.CONFIG_PY)
         self.assertIn("class IrodoriTTSServiceConfig", customize.CONFIG_PY)
@@ -264,11 +466,28 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn("reranker_top_k: int = 5", customize.CONFIG_PY)
         self.assertIn("multimodal_reranker_top_k: int = 10", customize.CONFIG_PY)
         self.assertIn("enable_reranker: bool = True", customize.CONFIG_PY)
+        self.assertIn('"NvidiaLLMRAGRouterService"', customize.CONFIG_PY)
+        self.assertIn("class NvidiaRAGRouterService", customize.CONFIG_PY)
+        self.assertIn('provider: Literal["nvidia", "local"]', customize.CONFIG_PY)
+        self.assertIn("local_db_path: str", customize.CONFIG_PY)
+        self.assertIn("local_top_k: int = 3", customize.CONFIG_PY)
+        self.assertIn("route_keywords: list[str]", customize.CONFIG_PY)
 
     def test_bot_snippet_builds_irodori_tts_service(self) -> None:
         self.assertIn("IrodoriTTSService", customize.NEW_BOT_SNIPPET)
         self.assertIn("config.IrodoriTTSService.base_url", customize.NEW_BOT_SNIPPET)
         self.assertIn("response_format=config.IrodoriTTSService.response_format", customize.NEW_BOT_SNIPPET)
+
+    def test_bot_snippet_builds_auto_rag_router_service(self) -> None:
+        self.assertIn("TokkioNvidiaLLMRAGRouterService", customize.NEW_RAG_SNIPPET)
+        self.assertIn("provider=config.NvidiaRAGRouterService.provider", customize.NEW_RAG_SNIPPET)
+        self.assertIn("local_db_path=config.NvidiaRAGRouterService.local_db_path", customize.NEW_RAG_SNIPPET)
+        self.assertIn("local_top_k=config.NvidiaRAGRouterService.local_top_k", customize.NEW_RAG_SNIPPET)
+        self.assertIn("route_keywords=config.NvidiaRAGRouterService.route_keywords", customize.NEW_RAG_SNIPPET)
+        self.assertIn(
+            "fallback_to_llm_on_error=config.NvidiaRAGRouterService.fallback_to_llm_on_error",
+            customize.NEW_RAG_SNIPPET,
+        )
 
     def test_apply_patch_updates_profile_ace_controller_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,13 +523,20 @@ class TokkioLlmConfigTests(unittest.TestCase):
             )
 
             profile_config = profile_config_path.read_text(encoding="utf-8")
-            self.assertIn('name: "香川"', profile_config)
+            self.assertIn('name: "香川豊"', profile_config)
+            self.assertIn("東京工科大学 学長", profile_config)
             self.assertIn(f'base_url: "{EXPECTED_LLM_BASE_URL}"', profile_config)
             self.assertIn(f'model: "{EXPECTED_LLM_MODEL}"', profile_config)
             self.assertIn('tts_processor: "IrodoriTTSService"', profile_config)
             self.assertIn('base_url: "http://10.209.1.12:8021"', profile_config)
             self.assertTrue((llm_rag_dir / "src" / "tokkio_irodori_tts.py").is_file())
+            self.assertTrue((llm_rag_dir / "src" / "tokkio_llm.py").is_file())
+            self.assertTrue((llm_rag_dir / "src" / "local_rag.py").is_file())
             self.assertTrue((llm_rag_dir / "src" / "tokkio_rag.py").is_file())
+            self.assertIn(
+                "get_fast_profile_reply",
+                (llm_rag_dir / "src" / "tokkio_llm.py").read_text(encoding="utf-8"),
+            )
             self.assertIn(
                 '"collection_names": [self.collection_name]',
                 (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
@@ -362,6 +588,7 @@ class TokkioLlmConfigTests(unittest.TestCase):
             customize.apply_patch(
                 ace_repo_dir,
                 rag_enabled=True,
+                rag_mode="always",
                 rag_server_url="http://10.209.1.12:8081",
                 rag_collection_name="ace_kagawa",
             )
@@ -376,10 +603,76 @@ class TokkioLlmConfigTests(unittest.TestCase):
             self.assertIn(f"multimodal_reranker_top_k: {EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K}", profile_config)
             self.assertIn("enable_reranker: true", profile_config)
 
+    def test_apply_patch_can_enable_auto_rag_router_in_profile_ace_controller_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ace_repo_dir = Path(tmp)
+            llm_rag_dir = ace_repo_dir / "workflows" / "tokkio" / "5.0.0-ga" / "src" / "llm-rag"
+            (llm_rag_dir / "src").mkdir(parents=True)
+            (llm_rag_dir / "configs").mkdir(parents=True)
+            (llm_rag_dir / "src" / "config.py").write_text("# old config\n", encoding="utf-8")
+            (llm_rag_dir / "configs" / "config.yaml").write_text("OpenAILLMContext:\n  name: Aki\n", encoding="utf-8")
+            (llm_rag_dir / "src" / "bot.py").write_text(
+                customize.OLD_LLM_SNIPPET + "\n" + customize.OLD_BOT_SNIPPET,
+                encoding="utf-8",
+            )
+            values_path = (
+                ace_repo_dir
+                / "workflows"
+                / "tokkio"
+                / "5.0.0-ga"
+                / "llm-rag"
+                / "tokkio-1stream-with-ui"
+                / "values.yaml"
+            )
+            values_path.parent.mkdir(parents=True)
+            values_path.write_text(f"- {customize.ENGLISH_ASR_RMIR}\n", encoding="utf-8")
+            profile_config_path = values_path.parent / "config" / "ace-controller" / "config.yaml"
+            profile_config_path.parent.mkdir(parents=True)
+            profile_config_path.write_text("OpenAILLMContext:\n  name: Aki\n", encoding="utf-8")
+
+            customize.apply_patch(
+                ace_repo_dir,
+                rag_enabled=True,
+                rag_mode="auto",
+                rag_provider="local",
+                local_rag_db_path=str(Path(tmp) / "local_rag.sqlite"),
+                rag_route_keywords=EXPECTED_RAG_ROUTE_KEYWORDS,
+            )
+
+            profile_config = profile_config_path.read_text(encoding="utf-8")
+            self.assertIn('llm_processor: "NvidiaLLMRAGRouterService"', profile_config)
+            self.assertIn("NvidiaRAGRouterService:", profile_config)
+            self.assertIn('provider: "local"', profile_config)
+            self.assertIn(f'local_db_path: "{EXPECTED_LOCAL_RAG_RUNTIME_DB}"', profile_config)
+            self.assertIn('        - "EBC"', profile_config)
+            self.assertIn("fallback_to_llm_on_error: true", profile_config)
+            self.assertIn(
+                "class TokkioNvidiaLLMRAGRouterService",
+                (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "def search_index",
+                (llm_rag_dir / "src" / "local_rag.py").read_text(encoding="utf-8"),
+            )
+
     def test_build_config_yaml_accepts_custom_irodori_tts_url(self) -> None:
         yaml_text = customize.build_config_yaml(irodori_tts_base_url="http://192.0.2.10:8021")
 
         self.assertIn('base_url: "http://192.0.2.10:8021"', yaml_text)
+
+    def test_manage_tokkio_auto_rag_health_is_optional(self) -> None:
+        script = (ROOT / "infra" / "tokkio" / "manage_tokkio.sh").read_text(encoding="utf-8")
+
+        self.assertIn('RAG_MODE="${TOKKIO_RAG_MODE:-auto}"', script)
+        self.assertIn('RAG_PROVIDER="${TOKKIO_RAG_PROVIDER:-local}"', script)
+        self.assertIn("is_rag_required()", script)
+        self.assertIn("Local RAG provider selected; skipping NVIDIA RAG health check.", script)
+        self.assertIn("RAG auto mode or local provider", script)
+        self.assertIn("first_pod_name_by_prefix()", script)
+        self.assertNotIn("awk -v prefix", script)
+        self.assertIn('"local_rag.py"', script)
+        self.assertIn("local_rag.sqlite", script)
+        self.assertIn('"tokkio_llm.py"', script)
 
 
 if __name__ == "__main__":

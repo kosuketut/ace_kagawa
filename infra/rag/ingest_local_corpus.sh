@@ -10,12 +10,14 @@ COLLECTION_NAME="${ACE_RAG_COLLECTION_NAME:-ace_kagawa}"
 POLL_ATTEMPTS="${ACE_RAG_INGEST_POLL_ATTEMPTS:-120}"
 POLL_SECONDS="${ACE_RAG_INGEST_POLL_SECONDS:-2}"
 DRY_RUN=false
+RESET_COLLECTION=false
 
 usage() {
   cat <<EOF
-Usage: $0 [--folder PATH] [--collection NAME] [--ingestor-url URL] [--dry-run]
+Usage: $0 [--folder PATH] [--collection NAME] [--ingestor-url URL] [--reset-collection] [--dry-run]
 
 Uploads local files into a NVIDIA RAG Blueprint collection.
+Use --reset-collection after deleting local corpus files so stale documents are removed from the vector DB.
 
 Defaults:
   Folder:       ${CORPUS_DIR}
@@ -59,6 +61,51 @@ for part in field.split("."):
         break
 print("" if value is None else value)
 ' "${field}"
+}
+
+json_collection_array() {
+  python3 -c 'import json, sys; print(json.dumps([sys.argv[1]], ensure_ascii=False))' "${COLLECTION_NAME}"
+}
+
+delete_collection() {
+  local response_file
+  local status_code
+  local payload
+
+  info "Deleting collection before re-ingest: ${COLLECTION_NAME}"
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    return 0
+  fi
+
+  response_file="$(mktemp)"
+  payload="$(json_collection_array)"
+  status_code="$(
+    curl -sS \
+      -o "${response_file}" \
+      -w "%{http_code}" \
+      -X DELETE \
+      -H "accept: application/json" \
+      -H "Content-Type: application/json" \
+      -d "${payload}" \
+      "${INGESTOR_URL%/}/v1/collections"
+  )" || {
+    local curl_status=$?
+    warn "Collection deletion request failed: $(cat "${response_file}")"
+    rm -f "${response_file}"
+    return "${curl_status}"
+  }
+
+  case "${status_code}" in
+    200|202|204|404)
+      info "Collection delete response (${status_code}): $(cat "${response_file}")"
+      ;;
+    *)
+      warn "Collection delete failed (${status_code}): $(cat "${response_file}")"
+      rm -f "${response_file}"
+      return 1
+      ;;
+  esac
+  rm -f "${response_file}"
 }
 
 upload_file() {
@@ -153,6 +200,10 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=true
       shift
       ;;
+    --reset-collection)
+      RESET_COLLECTION=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -165,6 +216,9 @@ done
 
 [[ -d "${CORPUS_DIR}" ]] || die "Corpus directory not found: ${CORPUS_DIR}"
 
+if [[ "${RESET_COLLECTION}" == "true" ]]; then
+  delete_collection
+fi
 ensure_collection
 
 found=0

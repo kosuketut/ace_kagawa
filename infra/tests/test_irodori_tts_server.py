@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -45,6 +46,22 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(settings.voice, "kagawa")
         self.assertEqual(settings.reference_source, ROOT / "Irodori-TTS" / "data" / "kagawa_voice.m4a")
         self.assertEqual(settings.reference_wav, Path("/data/ACE/irodori/reference/kagawa_voice_ref_48k_mono.wav"))
+        self.assertIs(getattr(settings, "short_cache_enabled", None), False)
+        self.assertEqual(getattr(settings, "short_cache_max_chars", None), 40)
+        self.assertEqual(getattr(settings, "short_cache_max_entries", None), 128)
+
+    def test_settings_from_env_parses_short_cache_options(self) -> None:
+        settings = irodori_server.IrodoriSettings.from_env(
+            {
+                "IRODORI_TTS_SHORT_CACHE_ENABLED": "true",
+                "IRODORI_TTS_SHORT_CACHE_MAX_CHARS": "24",
+                "IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES": "32",
+            }
+        )
+
+        self.assertIs(getattr(settings, "short_cache_enabled", None), True)
+        self.assertEqual(getattr(settings, "short_cache_max_chars", None), 24)
+        self.assertEqual(getattr(settings, "short_cache_max_entries", None), 32)
 
     def test_audio_to_pcm16_resamples_clips_and_returns_little_endian_pcm(self) -> None:
         audio = np.linspace(-1.5, 1.5, num=480, dtype=np.float32)
@@ -65,6 +82,111 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertTrue(wav.startswith(b"RIFF"))
         self.assertIn(b"WAVE", wav[:16])
         self.assertGreater(len(wav), len(pcm))
+
+    def test_normalize_speech_input_applies_kagawa_yutaka_pronunciation_hint(self) -> None:
+        text = "香川豊さん、こんにちは。香川 豊の自己紹介です。"
+
+        normalized = irodori_server.normalize_speech_input(text)
+
+        self.assertEqual(normalized, "香川ゆたかさん、こんにちは。香川ゆたかの自己紹介です。")
+
+    def test_synthesize_passes_pronunciation_normalized_text_to_runtime(self) -> None:
+        class FakeSamplingRequest:
+            def __init__(self, **kwargs) -> None:
+                self.__dict__.update(kwargs)
+
+        class FakeResult:
+            audio = np.array([0.0], dtype=np.float32)
+            sample_rate = 16000
+
+        class FakeRuntime:
+            def __init__(self) -> None:
+                self.request_text: str | None = None
+
+            def synthesize(self, request, log_fn=None):
+                self.request_text = request.text
+                return FakeResult()
+
+        fake_package = types.ModuleType("irodori_tts")
+        fake_inference_runtime = types.ModuleType("irodori_tts.inference_runtime")
+        fake_inference_runtime.SamplingRequest = FakeSamplingRequest
+        previous_package = sys.modules.get("irodori_tts")
+        previous_inference_runtime = sys.modules.get("irodori_tts.inference_runtime")
+        sys.modules["irodori_tts"] = fake_package
+        sys.modules["irodori_tts.inference_runtime"] = fake_inference_runtime
+        try:
+            settings = irodori_server.IrodoriSettings(
+                reference_source=Path(__file__),
+                reference_wav=Path(__file__),
+            )
+            runtime = FakeRuntime()
+            synthesizer = irodori_server.IrodoriSynthesizer(settings)
+            synthesizer._runtime = runtime
+
+            synthesizer.synthesize(" 香川豊です。 ", response_format="pcm")
+
+            self.assertEqual(runtime.request_text, "香川ゆたかです。")
+        finally:
+            if previous_package is None:
+                sys.modules.pop("irodori_tts", None)
+            else:
+                sys.modules["irodori_tts"] = previous_package
+            if previous_inference_runtime is None:
+                sys.modules.pop("irodori_tts.inference_runtime", None)
+            else:
+                sys.modules["irodori_tts.inference_runtime"] = previous_inference_runtime
+
+    def test_synthesize_caches_repeated_short_text_when_enabled(self) -> None:
+        class FakeSamplingRequest:
+            def __init__(self, **kwargs) -> None:
+                self.__dict__.update(kwargs)
+
+        class FakeResult:
+            def __init__(self, value: float) -> None:
+                self.audio = np.array([value], dtype=np.float32)
+                self.sample_rate = 16000
+
+        class FakeRuntime:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def synthesize(self, request, log_fn=None):
+                self.calls += 1
+                return FakeResult(0.1 * self.calls)
+
+        fake_package = types.ModuleType("irodori_tts")
+        fake_inference_runtime = types.ModuleType("irodori_tts.inference_runtime")
+        fake_inference_runtime.SamplingRequest = FakeSamplingRequest
+        previous_package = sys.modules.get("irodori_tts")
+        previous_inference_runtime = sys.modules.get("irodori_tts.inference_runtime")
+        sys.modules["irodori_tts"] = fake_package
+        sys.modules["irodori_tts.inference_runtime"] = fake_inference_runtime
+        try:
+            settings = irodori_server.IrodoriSettings(
+                reference_source=Path(__file__),
+                reference_wav=Path(__file__),
+                short_cache_enabled=True,
+                short_cache_max_chars=20,
+                short_cache_max_entries=128,
+            )
+            runtime = FakeRuntime()
+            synthesizer = irodori_server.IrodoriSynthesizer(settings)
+            synthesizer._runtime = runtime
+
+            first = synthesizer.synthesize("香川豊です。", response_format="pcm")
+            second = synthesizer.synthesize(" 香川 豊です。 ", response_format="pcm")
+
+            self.assertEqual(first, second)
+            self.assertEqual(runtime.calls, 1)
+        finally:
+            if previous_package is None:
+                sys.modules.pop("irodori_tts", None)
+            else:
+                sys.modules["irodori_tts"] = previous_package
+            if previous_inference_runtime is None:
+                sys.modules.pop("irodori_tts.inference_runtime", None)
+            else:
+                sys.modules["irodori_tts.inference_runtime"] = previous_inference_runtime
 
     @unittest.skipIf(fastapi is None, "fastapi is not installed in this Python environment")
     def test_speech_endpoint_treats_request_as_json_body(self) -> None:
