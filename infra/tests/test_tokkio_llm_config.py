@@ -301,6 +301,56 @@ class TokkioLlmConfigTests(unittest.TestCase):
             tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生の年齢は？"}])
         )
 
+    def test_speech_segment_buffer_emits_sentences_as_soon_as_punctuation_arrives(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer()
+
+        self.assertEqual(buffer.feed("東京工科大学の"), [])
+        self.assertEqual(buffer.feed("学長です。次に"), ["東京工科大学の学長です。"])
+        self.assertEqual(buffer.flush(), ["次に"])
+
+    def test_speech_segment_buffer_splits_long_clause_at_japanese_comma(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer(soft_max_chars=18, hard_max_chars=30)
+
+        segments = buffer.feed("材料強度学、複合材料、高信頼性材料について研究しています")
+
+        self.assertEqual(segments, ["材料強度学、複合材料、"])
+        self.assertEqual(buffer.flush(), ["高信頼性材料について研究しています"])
+
+    def test_speech_segment_buffer_hard_splits_when_no_natural_boundary_exists(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer(soft_max_chars=10, hard_max_chars=12)
+
+        segments = buffer.feed("abcdefghijklmnopqrstuvwxyz")
+
+        self.assertEqual(segments, ["abcdefghijkl", "mnopqrstuvwx"])
+        self.assertEqual(buffer.flush(), ["yz"])
+
+    def test_speech_segment_buffer_keeps_short_comma_clause_until_more_text_arrives(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer(
+            soft_max_chars=10,
+            hard_max_chars=24,
+            min_segment_chars=8,
+        )
+
+        self.assertEqual(buffer.feed("特に、"), [])
+        self.assertEqual(buffer.feed("材料強度学について、次に"), ["特に、材料強度学について、"])
+        self.assertEqual(buffer.flush(), ["次に"])
+
+    def test_speech_segment_buffer_does_not_emit_punctuation_only_segments(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer(
+            soft_max_chars=100,
+            hard_max_chars=5,
+            min_segment_chars=2,
+        )
+
+        self.assertEqual(buffer.feed("abcde"), ["abcde"])
+        self.assertEqual(buffer.feed("。"), [])
+        self.assertEqual(buffer.flush(), [])
+
     def test_custom_config_yaml_uses_standard_japanese_prompt(self) -> None:
         yaml_text = customize.build_config_yaml()
 

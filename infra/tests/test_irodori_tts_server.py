@@ -49,6 +49,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertIs(getattr(settings, "short_cache_enabled", None), False)
         self.assertEqual(getattr(settings, "short_cache_max_chars", None), 40)
         self.assertEqual(getattr(settings, "short_cache_max_entries", None), 128)
+        self.assertEqual(getattr(settings, "stream_chunk_bytes", None), 3200)
 
     def test_settings_from_env_parses_short_cache_options(self) -> None:
         settings = irodori_server.IrodoriSettings.from_env(
@@ -56,12 +57,14 @@ class IrodoriTtsServerTests(unittest.TestCase):
                 "IRODORI_TTS_SHORT_CACHE_ENABLED": "true",
                 "IRODORI_TTS_SHORT_CACHE_MAX_CHARS": "24",
                 "IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES": "32",
+                "IRODORI_TTS_STREAM_CHUNK_BYTES": "6400",
             }
         )
 
         self.assertIs(getattr(settings, "short_cache_enabled", None), True)
         self.assertEqual(getattr(settings, "short_cache_max_chars", None), 24)
         self.assertEqual(getattr(settings, "short_cache_max_entries", None), 32)
+        self.assertEqual(getattr(settings, "stream_chunk_bytes", None), 6400)
 
     def test_audio_to_pcm16_resamples_clips_and_returns_little_endian_pcm(self) -> None:
         audio = np.linspace(-1.5, 1.5, num=480, dtype=np.float32)
@@ -82,6 +85,13 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertTrue(wav.startswith(b"RIFF"))
         self.assertIn(b"WAVE", wav[:16])
         self.assertGreater(len(wav), len(pcm))
+
+    def test_iter_pcm_chunks_keeps_16_bit_samples_intact(self) -> None:
+        pcm = bytes(range(14))
+
+        chunks = list(irodori_server.iter_pcm_chunks(pcm, chunk_bytes=5))
+
+        self.assertEqual(chunks, [bytes(range(4)), bytes(range(4, 8)), bytes(range(8, 12)), bytes(range(12, 14))])
 
     def test_normalize_speech_input_applies_kagawa_yutaka_pronunciation_hint(self) -> None:
         text = "香川豊さん、こんにちは。香川 豊の自己紹介です。"

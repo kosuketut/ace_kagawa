@@ -24,7 +24,7 @@ from pipecat.frames.frames import ErrorFrame, TextFrame, TTSSpeakFrame
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 
 from .local_rag import format_hits_for_prompt, search_index
-from .tokkio_llm import TokkioNvidiaLLMService, get_fast_profile_reply
+from .tokkio_llm import SpeechSegmentBuffer, TokkioNvidiaLLMService, get_fast_profile_reply
 
 
 class _ContextMessageOverride:
@@ -196,6 +196,8 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
             first_chunk_received = False
             full_response = ""
             filler_said = False
+            speech_buffer = SpeechSegmentBuffer()
+            ttfb_stopped = False
 
             async def monitor_request_time():
                 nonlocal filler_said
@@ -221,8 +223,6 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
                             except asyncio.CancelledError:
                                 pass
 
-                    await self.stop_ttfb_metrics()
-
                     try:
                         message, citations = self._parse_rag_chunk(chunk)
                     except Exception as exc:
@@ -240,7 +240,13 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
                         logger.debug(f"Received RAG citation scores: {scores}")
                         await self.push_frame(NvidiaRAGCitationsFrame(citations=citations))
                     if message:
-                        await self.push_frame(TextFrame(message))
+                        if not ttfb_stopped:
+                            ttfb_stopped = True
+                            await self.stop_ttfb_metrics()
+                        for segment in speech_buffer.feed(message):
+                            await self.push_frame(TextFrame(segment))
+                for segment in speech_buffer.flush():
+                    await self.push_frame(TextFrame(segment))
             finally:
                 if not monitor_task.done():
                     monitor_task.cancel()
@@ -396,6 +402,8 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         first_chunk_received = False
         full_response = ""
         filler_said = False
+        speech_buffer = SpeechSegmentBuffer()
+        ttfb_stopped = False
 
         async def monitor_request_time():
             nonlocal filler_said
@@ -425,8 +433,6 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                                 except asyncio.CancelledError:
                                     pass
 
-                        await self.stop_ttfb_metrics()
-
                         try:
                             message, citations = self._parse_rag_chunk(chunk)
                         except Exception as exc:
@@ -439,7 +445,13 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                         if citations:
                             await self.push_frame(NvidiaRAGCitationsFrame(citations=citations))
                         if message:
-                            await self.push_frame(TextFrame(message))
+                            if not ttfb_stopped:
+                                ttfb_stopped = True
+                                await self.stop_ttfb_metrics()
+                            for segment in speech_buffer.feed(message):
+                                await self.push_frame(TextFrame(segment))
+                    for segment in speech_buffer.flush():
+                        await self.push_frame(TextFrame(segment))
         finally:
             if not monitor_task.done():
                 monitor_task.cancel()

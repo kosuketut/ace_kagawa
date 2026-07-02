@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 import subprocess
 from threading import Lock
-from typing import Mapping
+from typing import Iterator, Mapping
 import wave
 
 import numpy as np
@@ -87,6 +87,7 @@ class IrodoriSettings:
     short_cache_enabled: bool = False
     short_cache_max_chars: int = 40
     short_cache_max_entries: int = 128
+    stream_chunk_bytes: int = 3200
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "IrodoriSettings":
@@ -123,6 +124,7 @@ class IrodoriSettings:
             short_cache_enabled=_env_bool(values, "IRODORI_TTS_SHORT_CACHE_ENABLED", False),
             short_cache_max_chars=_env_int(values, "IRODORI_TTS_SHORT_CACHE_MAX_CHARS", 40),
             short_cache_max_entries=_env_int(values, "IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES", 128),
+            stream_chunk_bytes=_env_int(values, "IRODORI_TTS_STREAM_CHUNK_BYTES", 3200),
         )
 
     def ensure_reference_wav(self) -> Path:
@@ -194,6 +196,14 @@ def pcm16_to_wav_bytes(pcm: bytes, *, sample_rate_hz: int) -> bytes:
         wav_file.setframerate(sample_rate_hz)
         wav_file.writeframes(pcm)
     return buffer.getvalue()
+
+
+def iter_pcm_chunks(pcm: bytes, *, chunk_bytes: int) -> Iterator[bytes]:
+    if chunk_bytes <= 0:
+        raise ValueError("chunk_bytes must be positive")
+    sample_aligned_chunk_bytes = max(2, chunk_bytes - (chunk_bytes % 2))
+    for start in range(0, len(pcm), sample_aligned_chunk_bytes):
+        yield pcm[start : start + sample_aligned_chunk_bytes]
 
 
 class IrodoriSynthesizer:
@@ -310,7 +320,7 @@ class IrodoriSynthesizer:
 
 def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynthesizer | None = None):
     from fastapi import FastAPI, HTTPException
-    from fastapi.responses import Response
+    from fastapi.responses import Response, StreamingResponse
     from pydantic import BaseModel, Field
 
     resolved_settings = settings or IrodoriSettings.from_env()
@@ -320,6 +330,7 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
         input: str = Field(min_length=1)
         voice: str = resolved_settings.voice
         response_format: str = "pcm"
+        stream: bool = False
 
     app = FastAPI(title="Irodori TTS Service")
     app.state.settings = resolved_settings
@@ -354,6 +365,8 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
             raise HTTPException(status_code=400, detail=f"unsupported voice: {request.voice}")
         if request.response_format not in {"pcm", "wav"}:
             raise HTTPException(status_code=400, detail="response_format must be pcm or wav")
+        if request.stream and request.response_format != "pcm":
+            raise HTTPException(status_code=400, detail="stream=true requires response_format=pcm")
         if app.state.synthesis_lock is None:
             app.state.synthesis_lock = asyncio.Lock()
         async with app.state.synthesis_lock:
@@ -367,14 +380,21 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
+        headers = {
+            "X-Sample-Rate-Hz": str(sample_rate),
+            "X-Audio-Channels": "1",
+            "X-Audio-Encoding": "pcm_s16le" if request.response_format == "pcm" else "wav",
+        }
+        if request.stream:
+            return StreamingResponse(
+                iter_pcm_chunks(content, chunk_bytes=resolved_settings.stream_chunk_bytes),
+                media_type=media_type,
+                headers=headers,
+            )
         return Response(
             content=content,
             media_type=media_type,
-            headers={
-                "X-Sample-Rate-Hz": str(sample_rate),
-                "X-Audio-Channels": "1",
-                "X-Audio-Encoding": "pcm_s16le" if request.response_format == "pcm" else "wav",
-            },
+            headers=headers,
         )
 
     return app

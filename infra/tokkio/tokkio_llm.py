@@ -15,6 +15,8 @@ from pipecat.services.openai.llm import OpenAILLMService
 
 
 _STRIP_CHARS_RE = re.compile(r"[\s　。、．，,！？!?？!…・「」『』（）()\[\]【】]+")
+_SENTENCE_END_CHARS = "。.!?！？"
+_SOFT_BREAK_CHARS = "、，,;； "
 
 _GREETING_REPLIES = {
     "おはよう": "おはようございます。",
@@ -139,6 +141,76 @@ def get_fast_profile_reply(messages: list[dict]) -> str | None:
     return None
 
 
+class SpeechSegmentBuffer:
+    """Buffers LLM deltas into short, stable TTS phrases."""
+
+    def __init__(
+        self,
+        *,
+        soft_max_chars: int = 28,
+        hard_max_chars: int = 56,
+        min_segment_chars: int = 8,
+    ) -> None:
+        self._buffer = ""
+        self._soft_max_chars = soft_max_chars
+        self._hard_max_chars = hard_max_chars
+        self._min_segment_chars = min_segment_chars
+
+    def feed(self, text: str) -> list[str]:
+        self._buffer += text
+        return self._pop_ready_segments()
+
+    def flush(self) -> list[str]:
+        segment = self._buffer.strip()
+        self._buffer = ""
+        return [segment] if segment else []
+
+    def _pop_ready_segments(self) -> list[str]:
+        segments: list[str] = []
+        while self._buffer:
+            sentence_index = self._first_sentence_end_index()
+            if sentence_index is not None:
+                segment = self._take(sentence_index + 1)
+                if segment:
+                    segments.append(segment)
+                continue
+
+            if len(self._buffer) >= self._soft_max_chars:
+                soft_index = self._last_soft_break_index(self._hard_max_chars)
+                if soft_index is not None:
+                    segment = self._take(soft_index + 1)
+                    if segment:
+                        segments.append(segment)
+                    continue
+
+            if len(self._buffer) >= self._hard_max_chars:
+                segment = self._take(self._hard_max_chars)
+                if segment:
+                    segments.append(segment)
+                continue
+
+            break
+        return segments
+
+    def _first_sentence_end_index(self) -> int | None:
+        indexes = [self._buffer.find(char) for char in _SENTENCE_END_CHARS]
+        indexes = [index for index in indexes if index >= 0]
+        return min(indexes) if indexes else None
+
+    def _last_soft_break_index(self, max_chars: int) -> int | None:
+        search_text = self._buffer[:max_chars]
+        indexes = [search_text.rfind(char) for char in _SOFT_BREAK_CHARS]
+        indexes = [index for index in indexes if index + 1 >= self._min_segment_chars]
+        return max(indexes) if indexes else None
+
+    def _take(self, end_index: int) -> str:
+        segment = self._buffer[:end_index].strip()
+        self._buffer = self._buffer[end_index:].lstrip()
+        if segment and not any(char not in _SENTENCE_END_CHARS for char in segment):
+            return ""
+        return segment
+
+
 class TokkioLLMServiceMixin:
     async def _push_fast_profile_reply_if_available(self, context: OpenAILLMContext) -> bool:
         reply = get_fast_profile_reply(context.get_messages())
@@ -173,6 +245,8 @@ class TokkioLLMServiceMixin:
 
         try:
             chunk_stream = await stream_chat_completions(context)
+            speech_buffer = SpeechSegmentBuffer()
+            ttfb_stopped = False
             async for chunk in chunk_stream:
                 if not first_chunk_received:
                     elapsed_time = time.time() - start_time
@@ -187,15 +261,21 @@ class TokkioLLMServiceMixin:
                         except asyncio.CancelledError:
                             pass
 
+                text_delta = ""
                 if hasattr(chunk, "choices") and chunk.choices and chunk.choices[0].delta:
-                    if chunk.choices[0].delta.content:
-                        await self.stop_ttfb_metrics()
-                        await self.push_frame(TextFrame(chunk.choices[0].delta.content))
+                    text_delta = chunk.choices[0].delta.content or ""
                 elif hasattr(chunk, "content") and chunk.content:
-                    await self.stop_ttfb_metrics()
-                    await self.push_frame(TextFrame(chunk.content))
+                    text_delta = chunk.content
                 else:
                     logger.warning(f"Received chunk in unexpected format: {type(chunk).__name__}. Content: {chunk}")
+                if text_delta:
+                    if not ttfb_stopped:
+                        ttfb_stopped = True
+                        await self.stop_ttfb_metrics()
+                    for segment in speech_buffer.feed(text_delta):
+                        await self.push_frame(TextFrame(segment))
+            for segment in speech_buffer.flush():
+                await self.push_frame(TextFrame(segment))
         except Exception as e:
             logger.error(f"An error occurred in http request to LLM endpoint, Error: {e}")
             await self.push_frame(TTSSpeakFrame("Cannot connect to the LLM endpoint"))

@@ -27,6 +27,8 @@ class IrodoriTTSService(TTSService):
         sample_rate: int = 16000,
         timeout_s: float = 180.0,
         response_format: str = "pcm",
+        stream_audio: bool = True,
+        stream_chunk_bytes: int = 3200,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -40,6 +42,8 @@ class IrodoriTTSService(TTSService):
         self._configured_sample_rate = sample_rate
         self._timeout_s = timeout_s
         self._response_format = response_format
+        self._stream_audio = stream_audio
+        self._stream_chunk_bytes = stream_chunk_bytes
         self.set_voice(voice)
 
     def can_generate_metrics(self) -> bool:
@@ -57,23 +61,37 @@ class IrodoriTTSService(TTSService):
         yield TTSStartedFrame()
         yield TTSTextFrame(text)
 
+        first_audio_chunk = True
         async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout_s)) as client:
-            response = await client.post(
+            async with client.stream(
+                "POST",
                 f"{self._base_url}/v1/audio/speech",
                 json={
                     "input": text,
                     "voice": self._voice,
                     "response_format": self._response_format,
+                    "stream": self._stream_audio,
                 },
-            )
-            response.raise_for_status()
+            ) as response:
+                response.raise_for_status()
+                response_sample_rate = int(
+                    response.headers.get("X-Sample-Rate-Hz")
+                    or self._sample_rate
+                    or self._configured_sample_rate
+                )
+                async for chunk in response.aiter_bytes(chunk_size=self._stream_chunk_bytes):
+                    if not chunk:
+                        continue
+                    if first_audio_chunk:
+                        first_audio_chunk = False
+                        await self.stop_ttfb_metrics()
+                    yield TTSAudioRawFrame(
+                        audio=chunk,
+                        sample_rate=response_sample_rate,
+                        num_channels=1,
+                    )
 
-        await self.stop_ttfb_metrics()
-        if response.content:
-            yield TTSAudioRawFrame(
-                audio=response.content,
-                sample_rate=self._sample_rate or self._configured_sample_rate,
-                num_channels=1,
-            )
+        if first_audio_chunk:
+            await self.stop_ttfb_metrics()
         await self.start_tts_usage_metrics(text)
         yield TTSStoppedFrame()
