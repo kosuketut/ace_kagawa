@@ -31,6 +31,8 @@ DEFAULT_VOICE = "kagawa"
 PRONUNCIATION_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"香川\s*豊"), "香川ゆたか"),
 )
+SENTENCE_END_CHARS = "。.!?！？"
+SOFT_BREAK_CHARS = "、，,;； "
 
 
 def normalize_speech_input(text: str) -> str:
@@ -38,6 +40,67 @@ def normalize_speech_input(text: str) -> str:
     for pattern, replacement in PRONUNCIATION_HINTS:
         normalized = pattern.sub(replacement, normalized)
     return normalized
+
+
+def split_progressive_speech_input(
+    text: str,
+    *,
+    soft_max_chars: int = 32,
+    hard_max_chars: int = 64,
+    min_segment_chars: int = 8,
+) -> list[str]:
+    normalized = normalize_speech_input(text)
+    if not normalized:
+        return []
+
+    segments: list[str] = []
+    buffer = normalized
+    while buffer:
+        sentence_indexes = [buffer.find(char) for char in SENTENCE_END_CHARS]
+        sentence_indexes = [index for index in sentence_indexes if index >= 0]
+        if sentence_indexes:
+            segment, buffer = _take_progressive_segment(buffer, min(sentence_indexes) + 1)
+        elif len(buffer) >= soft_max_chars:
+            soft_index = _last_progressive_soft_break_index(buffer, soft_max_chars, min_segment_chars)
+            if soft_index is not None:
+                segment, buffer = _take_progressive_segment(buffer, soft_index + 1)
+            elif len(buffer) >= hard_max_chars:
+                segment, buffer = _take_progressive_segment(buffer, hard_max_chars)
+            else:
+                break
+        elif len(buffer) >= hard_max_chars:
+            segment, buffer = _take_progressive_segment(buffer, hard_max_chars)
+        else:
+            break
+        if segment and any(char not in SENTENCE_END_CHARS for char in segment):
+            segments.append(segment)
+
+    tail = buffer.strip()
+    if tail:
+        segments.append(tail)
+    return segments
+
+
+def coalesce_progressive_segments(segments: list[str], *, max_segments: int) -> list[str]:
+    if max_segments <= 0 or len(segments) <= max_segments:
+        return segments
+    head_count = max(1, max_segments - 1)
+    return segments[:head_count] + ["".join(segments[head_count:])]
+
+
+def _last_progressive_soft_break_index(
+    text: str,
+    max_chars: int,
+    min_segment_chars: int,
+) -> int | None:
+    search_text = text[:max_chars]
+    indexes = [search_text.rfind(char) for char in SOFT_BREAK_CHARS]
+    indexes = [index for index in indexes if index + 1 >= min_segment_chars]
+    return max(indexes) if indexes else None
+
+
+def _take_progressive_segment(text: str, end_index: int) -> tuple[str, str]:
+    return text[:end_index].strip(), text[end_index:].lstrip()
 
 
 def _env_bool(env: Mapping[str, str], key: str, default: bool) -> bool:
@@ -88,6 +151,8 @@ class IrodoriSettings:
     short_cache_max_chars: int = 40
     short_cache_max_entries: int = 128
     stream_chunk_bytes: int = 3200
+    progressive_stream_enabled: bool = False
+    progressive_max_segments: int = 2
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "IrodoriSettings":
@@ -125,6 +190,12 @@ class IrodoriSettings:
             short_cache_max_chars=_env_int(values, "IRODORI_TTS_SHORT_CACHE_MAX_CHARS", 40),
             short_cache_max_entries=_env_int(values, "IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES", 128),
             stream_chunk_bytes=_env_int(values, "IRODORI_TTS_STREAM_CHUNK_BYTES", 3200),
+            progressive_stream_enabled=_env_bool(
+                values,
+                "IRODORI_TTS_PROGRESSIVE_STREAM_ENABLED",
+                False,
+            ),
+            progressive_max_segments=_env_int(values, "IRODORI_TTS_PROGRESSIVE_MAX_SEGMENTS", 2),
         )
 
     def ensure_reference_wav(self) -> Path:
@@ -299,13 +370,12 @@ class IrodoriSynthesizer:
         with self._short_cache_lock:
             return len(self._short_cache)
 
-    def synthesize(self, text: str, *, response_format: str = "pcm") -> tuple[bytes, str, int]:
-        normalized_text = normalize_speech_input(text)
-        if not normalized_text:
-            raise ValueError("input text must be non-empty")
-        if response_format not in {"pcm", "wav"}:
-            raise ValueError("response_format must be one of: pcm, wav")
-
+    def _synthesize_cached_normalized(
+        self,
+        normalized_text: str,
+        *,
+        response_format: str,
+    ) -> tuple[bytes, str, int]:
         cache_key = (response_format, normalized_text)
         if self._is_short_cacheable(normalized_text):
             cached = self._get_short_cache(cache_key)
@@ -316,6 +386,70 @@ class IrodoriSynthesizer:
         if self._is_short_cacheable(normalized_text):
             self._put_short_cache(cache_key, result)
         return result
+
+    def synthesize(self, text: str, *, response_format: str = "pcm") -> tuple[bytes, str, int]:
+        normalized_text = normalize_speech_input(text)
+        if not normalized_text:
+            raise ValueError("input text must be non-empty")
+        if response_format not in {"pcm", "wav"}:
+            raise ValueError("response_format must be one of: pcm, wav")
+
+        return self._synthesize_cached_normalized(normalized_text, response_format=response_format)
+
+    def iter_pcm_stream(self, text: str, *, chunk_bytes: int) -> Iterator[bytes]:
+        segments = coalesce_progressive_segments(
+            split_progressive_speech_input(text),
+            max_segments=self._settings.progressive_max_segments,
+        )
+        if not segments:
+            raise ValueError("input text must be non-empty")
+
+        for segment in segments:
+            pcm, _media_type, _sample_rate = self._synthesize_cached_normalized(
+                segment,
+                response_format="pcm",
+            )
+            yield from iter_pcm_chunks(pcm, chunk_bytes=chunk_bytes)
+
+
+def iter_progressive_pcm_response(
+    synthesizer: object,
+    text: str,
+    *,
+    chunk_bytes: int,
+    lock: object | None = None,
+) -> Iterator[bytes]:
+    def _iter() -> Iterator[bytes]:
+        yield from synthesizer.iter_pcm_stream(text, chunk_bytes=chunk_bytes)
+
+    if lock is None:
+        yield from _iter()
+        return
+
+    with lock:
+        yield from _iter()
+
+
+def iter_streaming_pcm_response(
+    synthesizer: object,
+    text: str,
+    *,
+    settings: IrodoriSettings,
+    lock: object | None = None,
+) -> Iterator[bytes]:
+    def _iter() -> Iterator[bytes]:
+        if settings.progressive_stream_enabled:
+            yield from synthesizer.iter_pcm_stream(text, chunk_bytes=settings.stream_chunk_bytes)
+            return
+        pcm, _media_type, _sample_rate = synthesizer.synthesize(text, response_format="pcm")
+        yield from iter_pcm_chunks(pcm, chunk_bytes=settings.stream_chunk_bytes)
+
+    if lock is None:
+        yield from _iter()
+        return
+
+    with lock:
+        yield from _iter()
 
 
 def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynthesizer | None = None):
@@ -336,6 +470,7 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
     app.state.settings = resolved_settings
     app.state.synthesizer = resolved_synthesizer
     app.state.synthesis_lock = None
+    app.state.streaming_lock = Lock()
 
     @app.on_event("startup")
     async def _startup() -> None:
@@ -357,6 +492,7 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
             if hasattr(resolved_synthesizer, "short_cache_size")
             else 0,
             "short_cache_max_chars": resolved_settings.short_cache_max_chars,
+            "progressive_stream_enabled": resolved_settings.progressive_stream_enabled,
         }
 
     @app.post("/v1/audio/speech")
@@ -367,6 +503,41 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
             raise HTTPException(status_code=400, detail="response_format must be pcm or wav")
         if request.stream and request.response_format != "pcm":
             raise HTTPException(status_code=400, detail="stream=true requires response_format=pcm")
+        if request.stream:
+            headers = {
+                "X-Sample-Rate-Hz": str(resolved_settings.response_sample_rate_hz),
+                "X-Audio-Channels": "1",
+                "X-Audio-Encoding": "pcm_s16le",
+            }
+            if resolved_settings.progressive_stream_enabled:
+                return StreamingResponse(
+                    iter_progressive_pcm_response(
+                        app.state.synthesizer,
+                        request.input,
+                        chunk_bytes=resolved_settings.stream_chunk_bytes,
+                        lock=app.state.streaming_lock,
+                    ),
+                    media_type="audio/L16",
+                    headers=headers,
+                )
+            if app.state.synthesis_lock is None:
+                app.state.synthesis_lock = asyncio.Lock()
+            async with app.state.synthesis_lock:
+                try:
+                    content, _media_type, _sample_rate = await asyncio.to_thread(
+                        app.state.synthesizer.synthesize,
+                        request.input,
+                        response_format="pcm",
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                except Exception as exc:
+                    raise HTTPException(status_code=500, detail=str(exc)) from exc
+            return StreamingResponse(
+                iter_pcm_chunks(content, chunk_bytes=resolved_settings.stream_chunk_bytes),
+                media_type="audio/L16",
+                headers=headers,
+            )
         if app.state.synthesis_lock is None:
             app.state.synthesis_lock = asyncio.Lock()
         async with app.state.synthesis_lock:
@@ -385,12 +556,6 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
             "X-Audio-Channels": "1",
             "X-Audio-Encoding": "pcm_s16le" if request.response_format == "pcm" else "wav",
         }
-        if request.stream:
-            return StreamingResponse(
-                iter_pcm_chunks(content, chunk_bytes=resolved_settings.stream_chunk_bytes),
-                media_type=media_type,
-                headers=headers,
-            )
         return Response(
             content=content,
             media_type=media_type,

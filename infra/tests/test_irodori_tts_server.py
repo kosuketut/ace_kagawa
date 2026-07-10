@@ -50,6 +50,8 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(getattr(settings, "short_cache_max_chars", None), 40)
         self.assertEqual(getattr(settings, "short_cache_max_entries", None), 128)
         self.assertEqual(getattr(settings, "stream_chunk_bytes", None), 3200)
+        self.assertIs(getattr(settings, "progressive_stream_enabled", None), False)
+        self.assertEqual(getattr(settings, "progressive_max_segments", None), 2)
 
     def test_settings_from_env_parses_short_cache_options(self) -> None:
         settings = irodori_server.IrodoriSettings.from_env(
@@ -58,6 +60,8 @@ class IrodoriTtsServerTests(unittest.TestCase):
                 "IRODORI_TTS_SHORT_CACHE_MAX_CHARS": "24",
                 "IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES": "32",
                 "IRODORI_TTS_STREAM_CHUNK_BYTES": "6400",
+                "IRODORI_TTS_PROGRESSIVE_STREAM_ENABLED": "true",
+                "IRODORI_TTS_PROGRESSIVE_MAX_SEGMENTS": "4",
             }
         )
 
@@ -65,6 +69,8 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(getattr(settings, "short_cache_max_chars", None), 24)
         self.assertEqual(getattr(settings, "short_cache_max_entries", None), 32)
         self.assertEqual(getattr(settings, "stream_chunk_bytes", None), 6400)
+        self.assertIs(getattr(settings, "progressive_stream_enabled", None), True)
+        self.assertEqual(getattr(settings, "progressive_max_segments", None), 4)
 
     def test_audio_to_pcm16_resamples_clips_and_returns_little_endian_pcm(self) -> None:
         audio = np.linspace(-1.5, 1.5, num=480, dtype=np.float32)
@@ -92,6 +98,35 @@ class IrodoriTtsServerTests(unittest.TestCase):
         chunks = list(irodori_server.iter_pcm_chunks(pcm, chunk_bytes=5))
 
         self.assertEqual(chunks, [bytes(range(4)), bytes(range(4, 8)), bytes(range(8, 12)), bytes(range(12, 14))])
+
+    def test_split_progressive_speech_input_prefers_sentence_boundaries(self) -> None:
+        segments = irodori_server.split_progressive_speech_input(
+            "香川豊です。材料強度を研究しています。よろしくお願いします。"
+        )
+
+        self.assertEqual(
+            segments,
+            ["香川ゆたかです。", "材料強度を研究しています。", "よろしくお願いします。"],
+        )
+
+    def test_split_progressive_speech_input_splits_long_clause_at_soft_boundary(self) -> None:
+        segments = irodori_server.split_progressive_speech_input(
+            "材料強度学、複合材料、高信頼性材料について研究しています",
+            soft_max_chars=18,
+            hard_max_chars=30,
+            min_segment_chars=8,
+        )
+
+        self.assertEqual(segments[0], "材料強度学、複合材料、")
+        self.assertEqual("".join(segments), "材料強度学、複合材料、高信頼性材料について研究しています")
+
+    def test_coalesce_progressive_segments_keeps_first_segment_then_merges_tail(self) -> None:
+        segments = irodori_server.coalesce_progressive_segments(
+            ["最初です。", "次です。", "最後です。"],
+            max_segments=2,
+        )
+
+        self.assertEqual(segments, ["最初です。", "次です。最後です。"])
 
     def test_normalize_speech_input_applies_kagawa_yutaka_pronunciation_hint(self) -> None:
         text = "香川豊さん、こんにちは。香川 豊の自己紹介です。"
@@ -198,6 +233,61 @@ class IrodoriTtsServerTests(unittest.TestCase):
             else:
                 sys.modules["irodori_tts.inference_runtime"] = previous_inference_runtime
 
+    def test_iter_pcm_stream_synthesizes_progressive_segments_in_order(self) -> None:
+        class FakeSamplingRequest:
+            def __init__(self, **kwargs) -> None:
+                self.__dict__.update(kwargs)
+
+        class FakeResult:
+            def __init__(self, value: float) -> None:
+                self.audio = np.array([value], dtype=np.float32)
+                self.sample_rate = 16000
+
+        class FakeRuntime:
+            def __init__(self) -> None:
+                self.texts: list[str] = []
+
+            def synthesize(self, request, log_fn=None):
+                self.texts.append(request.text)
+                return FakeResult(0.1 * len(self.texts))
+
+        fake_package = types.ModuleType("irodori_tts")
+        fake_inference_runtime = types.ModuleType("irodori_tts.inference_runtime")
+        fake_inference_runtime.SamplingRequest = FakeSamplingRequest
+        previous_package = sys.modules.get("irodori_tts")
+        previous_inference_runtime = sys.modules.get("irodori_tts.inference_runtime")
+        sys.modules["irodori_tts"] = fake_package
+        sys.modules["irodori_tts.inference_runtime"] = fake_inference_runtime
+        try:
+            settings = irodori_server.IrodoriSettings(
+                reference_source=Path(__file__),
+                reference_wav=Path(__file__),
+                short_cache_enabled=False,
+            )
+            runtime = FakeRuntime()
+            synthesizer = irodori_server.IrodoriSynthesizer(settings)
+            synthesizer._runtime = runtime
+
+            chunks = list(
+                synthesizer.iter_pcm_stream(
+                    "香川豊です。材料強度を研究しています。",
+                    chunk_bytes=3200,
+                )
+            )
+
+            self.assertEqual(runtime.texts, ["香川ゆたかです。", "材料強度を研究しています。"])
+            self.assertEqual(len(chunks), 2)
+            self.assertTrue(all(chunks))
+        finally:
+            if previous_package is None:
+                sys.modules.pop("irodori_tts", None)
+            else:
+                sys.modules["irodori_tts"] = previous_package
+            if previous_inference_runtime is None:
+                sys.modules.pop("irodori_tts.inference_runtime", None)
+            else:
+                sys.modules["irodori_tts.inference_runtime"] = previous_inference_runtime
+
     @unittest.skipIf(fastapi is None, "fastapi is not installed in this Python environment")
     def test_speech_endpoint_treats_request_as_json_body(self) -> None:
         class FakeSynthesizer:
@@ -215,6 +305,98 @@ class IrodoriTtsServerTests(unittest.TestCase):
 
         self.assertEqual([param.name for param in speech_route.dependant.body_params], ["request"])
         self.assertNotIn("request", [param.name for param in speech_route.dependant.query_params])
+
+    def test_progressive_pcm_response_iterator_uses_stream_generator_lazily(self) -> None:
+        class FakeSynthesizer:
+            def __init__(self) -> None:
+                self.synthesize_calls = 0
+                self.stream_calls: list[tuple[str, int]] = []
+
+            def synthesize(self, text: str, *, response_format: str = "pcm"):
+                self.synthesize_calls += 1
+                raise AssertionError("stream=true must not synthesize the full request before responding")
+
+            def iter_pcm_stream(self, text: str, *, chunk_bytes: int):
+                self.stream_calls.append((text, chunk_bytes))
+                yield b"\x01\x00"
+                yield b"\x02\x00"
+
+            def short_cache_size(self) -> int:
+                return 0
+
+        synthesizer = FakeSynthesizer()
+
+        body_iter = irodori_server.iter_progressive_pcm_response(
+            synthesizer,
+            "香川豊です。",
+            chunk_bytes=4,
+        )
+
+        self.assertEqual(synthesizer.stream_calls, [])
+        self.assertEqual(b"".join(body_iter), b"\x01\x00\x02\x00")
+        self.assertEqual(synthesizer.synthesize_calls, 0)
+        self.assertEqual(synthesizer.stream_calls, [("香川豊です。", 4)])
+
+    def test_streaming_pcm_response_iterator_defaults_to_full_synthesis_chunks(self) -> None:
+        class FakeSynthesizer:
+            def __init__(self) -> None:
+                self.synthesize_calls: list[tuple[str, str]] = []
+                self.stream_calls = 0
+
+            def synthesize(self, text: str, *, response_format: str = "pcm"):
+                self.synthesize_calls.append((text, response_format))
+                return b"\x01\x00\x02\x00\x03\x00", "audio/L16", 16000
+
+            def iter_pcm_stream(self, text: str, *, chunk_bytes: int):
+                self.stream_calls += 1
+                raise AssertionError("progressive stream must be opt-in")
+
+        synthesizer = FakeSynthesizer()
+        settings = irodori_server.IrodoriSettings(stream_chunk_bytes=4)
+
+        body = b"".join(
+            irodori_server.iter_streaming_pcm_response(
+                synthesizer,
+                "香川豊です。",
+                settings=settings,
+            )
+        )
+
+        self.assertEqual(body, b"\x01\x00\x02\x00\x03\x00")
+        self.assertEqual(synthesizer.synthesize_calls, [("香川豊です。", "pcm")])
+        self.assertEqual(synthesizer.stream_calls, 0)
+
+    def test_streaming_pcm_response_iterator_uses_progressive_when_enabled(self) -> None:
+        class FakeSynthesizer:
+            def __init__(self) -> None:
+                self.synthesize_calls = 0
+                self.stream_calls: list[tuple[str, int]] = []
+
+            def synthesize(self, text: str, *, response_format: str = "pcm"):
+                self.synthesize_calls += 1
+                raise AssertionError("progressive stream should not synthesize full text first")
+
+            def iter_pcm_stream(self, text: str, *, chunk_bytes: int):
+                self.stream_calls.append((text, chunk_bytes))
+                yield b"\x01\x00"
+                yield b"\x02\x00"
+
+        synthesizer = FakeSynthesizer()
+        settings = irodori_server.IrodoriSettings(
+            stream_chunk_bytes=4,
+            progressive_stream_enabled=True,
+        )
+
+        body_iter = irodori_server.iter_streaming_pcm_response(
+            synthesizer,
+            "香川豊です。",
+            settings=settings,
+        )
+
+        self.assertEqual(synthesizer.stream_calls, [])
+        self.assertEqual(b"".join(body_iter), b"\x01\x00\x02\x00")
+        self.assertEqual(synthesizer.synthesize_calls, 0)
+        self.assertEqual(synthesizer.stream_calls, [("香川豊です。", 4)])
 
 
 if __name__ == "__main__":
