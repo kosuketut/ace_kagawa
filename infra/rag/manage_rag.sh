@@ -12,7 +12,7 @@ RAG_ENV_FILE="${ACE_RAG_ENV_FILE:-${BLUEPRINT_DIR}/deploy/compose/nvdev.env}"
 TOKKIO_ENV_FILE="${ACE_RAG_TOKKIO_ENV_FILE:-${REPO_ROOT}/infra/tokkio/.env}"
 RAG_HEALTH_URL="${ACE_RAG_HEALTH_URL:-http://127.0.0.1:8081/v1/health?check_dependencies=true}"
 RAG_INGESTOR_HEALTH_URL="${ACE_RAG_INGESTOR_HEALTH_URL:-http://127.0.0.1:8082/v1/health?check_dependencies=true}"
-RAG_LLM_MODEL="${ACE_RAG_LLM_MODEL:-stockmark/stockmark-2-100b-instruct}"
+RAG_LLM_MODEL="${ACE_RAG_LLM_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}"
 RAG_LLM_SERVER_URL="${ACE_RAG_LLM_SERVER_URL:-https://integrate.api.nvidia.com/v1}"
 
 usage() {

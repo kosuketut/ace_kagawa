@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 import types
@@ -12,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ASR_MODEL = "conformer-unified-ja-JP-asr-streaming-asr-bls-ensemble"
 EXPECTED_ASR_RMIR = "nvidia/riva/rmir_asr_conformer_unified_ja_jp_str:2.19.0"
 EXPECTED_LLM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-EXPECTED_LLM_MODEL = "stockmark/stockmark-2-100b-instruct"
+EXPECTED_LLM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 EXPECTED_RAG_SERVER_URL = "http://10.209.1.12:8081/v1"
 EXPECTED_RAG_COLLECTION = "ace_kagawa"
-EXPECTED_RAG_MAX_TOKENS = 128
+EXPECTED_RAG_MAX_TOKENS = 64
 EXPECTED_RAG_VDB_TOP_K = 12
 EXPECTED_RAG_RERANKER_TOP_K = 5
 EXPECTED_RAG_MULTIMODAL_RERANKER_TOP_K = 10
@@ -33,11 +34,26 @@ EXPECTED_KAGAWA_PROFILE_ROUTE_KEYWORDS = [
     "年齢",
     "誰ですか",
 ]
+EXPECTED_EXPANDED_ROUTE_KEYWORDS = [
+    "専攻",
+    "学費",
+    "入学金",
+    "授業料",
+    "奨学金",
+    "学生支援",
+    "研究",
+    "スパコン",
+    "スーパーコンピュータ",
+    "青嵐",
+    "SEIRAN",
+    "DGX B200",
+]
 EXPECTED_RAG_PROVIDER = "local"
+EXPECTED_LOCAL_RAG_CORPUS = "data/rag/corpus"
 EXPECTED_LOCAL_RAG_DB = "data/rag/local/local_rag.sqlite"
 EXPECTED_LOCAL_RAG_RUNTIME_DB = "/code/configs/local_rag.sqlite"
 EXPECTED_LOCAL_RAG_TOP_K = 3
-EXPECTED_LOCAL_RAG_MAX_CONTEXT_CHARS = 1800
+EXPECTED_LOCAL_RAG_MAX_CONTEXT_CHARS = 2800
 
 
 def load_module(name: str, path: Path):
@@ -106,7 +122,7 @@ def load_tokkio_llm_with_stubs():
 
 
 class TokkioLlmConfigTests(unittest.TestCase):
-    def test_resolve_llm_settings_defaults_to_stockmark_nim_endpoint(self) -> None:
+    def test_resolve_llm_settings_defaults_to_nemotron_ultra_nim_endpoint(self) -> None:
         settings = prepare.resolve_llm_settings(
             {
                 "TOKKIO_APP_HOST_IPV4_ADDR": "10.0.0.42",
@@ -117,6 +133,23 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(settings.base_url, EXPECTED_LLM_BASE_URL)
         self.assertEqual(settings.model, EXPECTED_LLM_MODEL)
         self.assertEqual(settings.api_key, "nvidia-key")
+
+    def test_nemotron_ultra_uses_realtime_non_reasoning_parameters(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        params = tokkio_llm.nvidia_model_input_params(EXPECTED_LLM_MODEL)
+
+        self.assertEqual(params["temperature"], 0.0)
+        self.assertEqual(params["max_tokens"], 512)
+        self.assertEqual(
+            params["extra"],
+            {
+                "extra_body": {
+                    "chat_template_kwargs": {"enable_thinking": False},
+                }
+            },
+        )
+        self.assertEqual(tokkio_llm.nvidia_model_input_params("mistralai/mistral-nemotron"), {})
 
     def test_generated_env_exports_llm_api_key_for_local_endpoint(self) -> None:
         generated = prepare.build_generated_env(
@@ -160,10 +193,13 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(settings.mode, EXPECTED_RAG_MODE)
         self.assertIn("論文", settings.route_keywords)
         self.assertIn("SiC/SiC", settings.route_keywords)
+        for keyword in ("研究", "プロジェクト", "専攻", "学費", "奨学金", "学生支援"):
+            self.assertIn(keyword, settings.route_keywords)
         for keyword in EXPECTED_KAGAWA_PROFILE_ROUTE_KEYWORDS:
             self.assertIn(keyword, settings.route_keywords)
-        self.assertTrue(settings.fallback_to_llm_on_error)
+        self.assertFalse(settings.fallback_to_llm_on_error)
         self.assertEqual(settings.provider, EXPECTED_RAG_PROVIDER)
+        self.assertEqual(settings.local_corpus_path, EXPECTED_LOCAL_RAG_CORPUS)
         self.assertEqual(settings.local_db_path, EXPECTED_LOCAL_RAG_DB)
         self.assertEqual(settings.local_runtime_db_path, EXPECTED_LOCAL_RAG_RUNTIME_DB)
         self.assertEqual(settings.local_top_k, EXPECTED_LOCAL_RAG_TOP_K)
@@ -218,15 +254,52 @@ class TokkioLlmConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "TOKKIO_RAG_PROVIDER"):
             prepare.resolve_rag_settings({"TOKKIO_RAG_ENABLED": "true", "TOKKIO_RAG_PROVIDER": "remote"})
 
-    def test_custom_config_yaml_uses_stockmark_nim_endpoint_and_model(self) -> None:
+    def test_prepare_freshness_gate_rejects_changed_corpus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            corpus_dir = Path(tmp) / "corpus"
+            corpus_dir.mkdir()
+            source_path = corpus_dir / "school.md"
+            source_path.write_text("# School\n\n東京工科大学の概要です。\n", encoding="utf-8")
+            db_path = Path(tmp) / "local_rag.sqlite"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "infra" / "rag" / "build_local_index.py"),
+                    "--corpus",
+                    str(corpus_dir),
+                    "--db",
+                    str(db_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            settings = prepare.resolve_rag_settings(
+                {
+                    "TOKKIO_RAG_ENABLED": "true",
+                    "TOKKIO_RAG_PROVIDER": "local",
+                    "TOKKIO_LOCAL_RAG_CORPUS": str(corpus_dir),
+                    "TOKKIO_LOCAL_RAG_DB": str(db_path),
+                }
+            )
+
+            self.assertTrue(prepare.verify_local_rag_index(settings)["fresh"])
+            source_path.write_text("# School\n\n東京工科大学の概要を更新しました。\n", encoding="utf-8")
+            with self.assertRaises(subprocess.CalledProcessError):
+                prepare.verify_local_rag_index(settings)
+
+    def test_custom_config_yaml_uses_nemotron_ultra_nim_endpoint_and_model(self) -> None:
         yaml_text = customize.build_config_yaml()
 
         self.assertIn(f'base_url: "{EXPECTED_LLM_BASE_URL}"', yaml_text)
         self.assertIn(f'model: "{EXPECTED_LLM_MODEL}"', yaml_text)
         self.assertIn("標準語で自然かつ簡潔", yaml_text)
-        self.assertIn("80文字以内", yaml_text)
-        self.assertIn("1から2文", yaml_text)
-        self.assertIn("time_delay: 6.0", yaml_text)
+        self.assertIn("40から60文字", yaml_text)
+        self.assertIn("原則1文", yaml_text)
+        self.assertIn("100文字以内", yaml_text)
+        self.assertIn("最大2文", yaml_text)
+        self.assertNotIn("80文字以内", yaml_text)
+        self.assertIn("time_delay: 2.5", yaml_text)
         self.assertIn('- "確認しています"', yaml_text)
         self.assertNotIn("少々お待ちください", yaml_text)
         self.assertIn('llm_processor: "NvidiaLLMService"', yaml_text)
@@ -262,14 +335,49 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn(f'local_db_path: "{EXPECTED_LOCAL_RAG_RUNTIME_DB}"', yaml_text)
         self.assertIn(f"local_top_k: {EXPECTED_LOCAL_RAG_TOP_K}", yaml_text)
         self.assertIn(f"local_max_context_chars: {EXPECTED_LOCAL_RAG_MAX_CONTEXT_CHARS}", yaml_text)
-        self.assertIn('        - "論文"', yaml_text)
-        self.assertIn('        - "SiC/SiC"', yaml_text)
-        self.assertIn("fallback_to_llm_on_error: true", yaml_text)
+        route_section = yaml_text.split("    route_keywords:\n", 1)[1].split(
+            "    fallback_to_llm_on_error:", 1
+        )[0]
+        for keyword in EXPECTED_RAG_ROUTE_KEYWORDS:
+            self.assertIn(f'        - "{keyword}"', route_section)
+        self.assertNotIn('        - "香川先生"', route_section)
+        self.assertNotIn(customize.RAG_ROUTE_KEYWORDS_TEMPLATE_MARKER, yaml_text)
+        self.assertIn("fallback_to_llm_on_error: false", yaml_text)
+
+    def test_grounded_rag_failures_never_use_direct_llm_fallback(self) -> None:
+        source = (ROOT / "infra" / "tokkio" / "tokkio_rag.py").read_text(encoding="utf-8")
+        local_rag_block = source.split(
+            "    async def _stream_local_rag_response", 1
+        )[1].split("    async def _stream_rag_response", 1)[0]
+        router_error_block = source.split(
+            '            logger.error(f"RAG router failed, Error: {exc!r}")', 1
+        )[1]
+
+        self.assertIn("GROUNDED_ANSWER_UNAVAILABLE_REPLY", source)
+        self.assertEqual(local_rag_block.count("await self._push_grounded_answer_unavailable()"), 2)
+        self.assertNotIn("await super()._process_context(context)", local_rag_block)
+        self.assertNotIn("await super()._process_context(context)", router_error_block)
+        self.assertIn(
+            "await self._push_grounded_answer_unavailable(start_metrics=False)",
+            source,
+        )
+        self.assertIn(
+            "await self.push_frame(TTSSpeakFrame(GROUNDED_ANSWER_UNAVAILABLE_REPLY))",
+            router_error_block,
+        )
+
+    def test_custom_config_yaml_uses_early_cached_filler_delay(self) -> None:
+        yaml_text = customize.build_config_yaml()
+
+        self.assertIn('        - "確認しています"', yaml_text)
+        self.assertIn("    time_delay: 2.5", yaml_text)
 
     def test_custom_config_yaml_routes_kagawa_profile_detail_questions_by_default(self) -> None:
         yaml_text = customize.build_config_yaml(rag_enabled=True, rag_mode="auto")
 
         for keyword in EXPECTED_KAGAWA_PROFILE_ROUTE_KEYWORDS:
+            self.assertIn(f'        - "{keyword}"', yaml_text)
+        for keyword in EXPECTED_EXPANDED_ROUTE_KEYWORDS:
             self.assertIn(f'        - "{keyword}"', yaml_text)
 
     def test_custom_config_yaml_can_force_rag_off_even_when_enabled(self) -> None:
@@ -277,7 +385,7 @@ class TokkioLlmConfigTests(unittest.TestCase):
 
         self.assertIn('llm_processor: "NvidiaLLMService"', yaml_text)
 
-    def test_tokkio_llm_fast_replies_cover_greetings_and_name_only(self) -> None:
+    def test_tokkio_llm_fast_replies_cover_greetings_name_and_current_age(self) -> None:
         tokkio_llm = load_tokkio_llm_with_stubs()
 
         self.assertEqual(
@@ -297,9 +405,200 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIsNone(
             tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生の名前と専門分野は？"}])
         )
-        self.assertIsNone(
-            tokkio_llm.get_fast_profile_reply([{"role": "user", "content": "香川先生の年齢は？"}])
+        self.assertEqual(
+            tokkio_llm.get_fast_profile_reply(
+                [{"role": "user", "content": "香川先生の年齢は？"}],
+                today=__import__("datetime").date(2026, 7, 19),
+            ),
+            "私は1952年9月19日生まれで、現在73歳です。",
         )
+        self.assertEqual(
+            tokkio_llm.get_fast_profile_reply(
+                [{"role": "user", "content": "香川先生は何歳ですか？"}],
+                today=__import__("datetime").date(2026, 9, 19),
+            ),
+            "私は1952年9月19日生まれで、現在74歳です。",
+        )
+        self.assertEqual(
+            tokkio_llm.get_fast_profile_reply(
+                [{"role": "user", "content": "先生はおいくつですか？"}],
+                today=__import__("datetime").date(2026, 7, 19),
+            ),
+            "私は1952年9月19日生まれで、現在73歳です。",
+        )
+
+    def test_tokkio_llm_open_campus_greeting_uses_explicit_cues_and_full_script(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        script = tokkio_llm.get_scripted_speech_reply(
+            [{"role": "user", "content": "オープンキャンパスのご挨拶をお願いします。"}]
+        )
+
+        self.assertEqual(script, tokkio_llm.OPEN_CAMPUS_GREETING_SCRIPT)
+        self.assertEqual(script[0], "皆さん、こんにちは。")
+        self.assertIn("USJとほぼ同じ広さ", "".join(script))
+        self.assertIn("私はAI学長です。", "".join(script))
+        self.assertEqual(
+            script[-1],
+            "ここで、開発した学生と私とのリアルなやり取りをご覧ください。",
+        )
+        self.assertIsNone(
+            tokkio_llm.get_scripted_speech_reply(
+                [{"role": "user", "content": "オープンキャンパスはいつですか？"}]
+            )
+        )
+
+    def test_tokkio_llm_open_campus_greeting_pushes_sentence_segments_without_llm(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        async def exercise_script():
+            class Harness(tokkio_llm.TokkioLLMServiceMixin):
+                filler = ["確認しています"]
+                time_delay = 60.0
+                first_response_timeout_s = 0.01
+
+                def __init__(self) -> None:
+                    self.frames = []
+                    self.metrics_started = 0
+                    self.metrics_stopped = 0
+
+                async def start_ttfb_metrics(self) -> None:
+                    self.metrics_started += 1
+
+                async def stop_ttfb_metrics(self) -> None:
+                    self.metrics_stopped += 1
+
+                async def push_frame(self, frame) -> None:
+                    self.frames.append(frame)
+
+            async def unexpected_stream(_context):
+                raise AssertionError("scripted speech must not call the LLM")
+
+            context = types.SimpleNamespace(
+                get_messages=lambda: [{"role": "user", "content": "台本を読んでください"}]
+            )
+            harness = Harness()
+            await harness._process_context_common(context, unexpected_stream)
+            return harness
+
+        harness = __import__("asyncio").run(exercise_script())
+
+        self.assertEqual(
+            [frame.content for frame in harness.frames],
+            list(tokkio_llm.OPEN_CAMPUS_GREETING_SCRIPT),
+        )
+        self.assertEqual(harness.metrics_started, 1)
+        self.assertEqual(harness.metrics_stopped, 1)
+
+    def test_tokkio_llm_open_campus_closing_uses_separate_fixed_script(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        script = tokkio_llm.get_scripted_speech_reply(
+            [{"role": "user", "content": "オープンキャンパスの締めの言葉をお願いします。"}]
+        )
+
+        self.assertEqual(script, tokkio_llm.OPEN_CAMPUS_CLOSING_SCRIPT)
+        self.assertEqual(
+            script,
+            (
+                "ね。このようにAI香川豊、しっかり対応できるんですよ。",
+                "今後も様々なシーンでお目にかかるかと思います。",
+                "4月にみなさんとお会いできることを楽しみにしています。",
+                "今日は一日、楽しんでいってください。",
+            ),
+        )
+        self.assertNotIn(
+            "ここで、開発した学生と私とのリアルなやり取りをご覧ください。",
+            script,
+        )
+
+    def test_tokkio_llm_uses_bounded_first_response_timeout(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        self.assertEqual(tokkio_llm._DEFAULT_FIRST_RESPONSE_TIMEOUT_S, 20.0)
+        self.assertIn("もう一度お尋ねください", tokkio_llm._LLM_TIMEOUT_REPLY)
+
+    def test_tokkio_llm_speaks_japanese_fallback_when_first_text_times_out(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        async def exercise_timeout():
+            class Harness(tokkio_llm.TokkioLLMServiceMixin):
+                filler = ["確認しています"]
+                time_delay = 60.0
+                first_response_timeout_s = 0.01
+
+                def __init__(self) -> None:
+                    self.frames = []
+                    self.metrics_stopped = 0
+
+                async def start_ttfb_metrics(self) -> None:
+                    pass
+
+                async def stop_ttfb_metrics(self) -> None:
+                    self.metrics_stopped += 1
+
+                async def push_frame(self, frame) -> None:
+                    self.frames.append(frame)
+
+            async def slow_stream(_context):
+                async def chunks():
+                    await __import__("asyncio").sleep(0.05)
+                    yield types.SimpleNamespace(content="遅れて届いた回答です。")
+
+                return chunks()
+
+            context = types.SimpleNamespace(get_messages=lambda: [])
+            harness = Harness()
+            await harness._process_context_common(context, slow_stream)
+            return harness
+
+        harness = __import__("asyncio").run(exercise_timeout())
+        self.assertEqual(harness.metrics_stopped, 1)
+        self.assertEqual([frame.content for frame in harness.frames], [tokkio_llm._LLM_TIMEOUT_REPLY])
+
+    def test_tokkio_llm_retries_transient_worker_capacity_error_once(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        async def exercise_retry():
+            class Harness(tokkio_llm.TokkioLLMServiceMixin):
+                filler = []
+                time_delay = 60.0
+                first_response_timeout_s = 1.0
+                llm_resource_retry_delay_s = 0.0
+
+                def __init__(self) -> None:
+                    self.frames = []
+                    self.calls = 0
+
+                async def start_ttfb_metrics(self) -> None:
+                    pass
+
+                async def stop_ttfb_metrics(self) -> None:
+                    pass
+
+                async def push_frame(self, frame) -> None:
+                    self.frames.append(frame)
+
+            harness = Harness()
+
+            async def transient_stream(_context):
+                harness.calls += 1
+                if harness.calls == 1:
+                    raise RuntimeError("ResourceExhausted: Worker local total request limit reached (38/32)")
+
+                async def chunks():
+                    yield types.SimpleNamespace(content="再試行で応答しました。")
+
+                return chunks()
+
+            context = types.SimpleNamespace(get_messages=lambda: [])
+            await harness._process_context_common(context, transient_stream)
+            return harness
+
+        harness = __import__("asyncio").run(exercise_retry())
+        self.assertEqual(harness.calls, 2)
+        self.assertEqual([frame.content for frame in harness.frames], ["再試行で応答しました。"])
+        self.assertIn("混み合っています", tokkio_llm._LLM_BUSY_REPLY)
 
     def test_speech_segment_buffer_emits_sentences_as_soon_as_punctuation_arrives(self) -> None:
         tokkio_llm = load_tokkio_llm_with_stubs()
@@ -351,6 +650,23 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(buffer.feed("。"), [])
         self.assertEqual(buffer.flush(), [])
 
+    def test_speech_segment_buffer_converts_streamed_markdown_lists_to_spoken_sentences(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer()
+        response = (
+            "**学部特色入試** * 先進情報専攻:3名、社会情報専攻:2名 "
+            "*試験日:9月27日 **全学部AO入試** *指定2教科は数学・英語"
+        )
+
+        segments = buffer.feed(response[:35]) + buffer.feed(response[35:]) + buffer.flush()
+        spoken = "".join(segments)
+
+        self.assertNotIn("*", spoken)
+        self.assertNotIn("**", spoken)
+        self.assertIn("学部特色入試。", spoken)
+        self.assertIn("全学部AO入試。", spoken)
+        self.assertIn("社会情報専攻:2名。試験日", spoken)
+
     def test_custom_config_yaml_uses_standard_japanese_prompt(self) -> None:
         yaml_text = customize.build_config_yaml()
 
@@ -361,6 +677,8 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn('voice: "kagawa"', yaml_text)
         self.assertIn("あなたは「{name}」として", yaml_text)
         self.assertIn("香川先生", yaml_text)
+        self.assertIn("詳しい説明でも", yaml_text)
+        self.assertIn("読み上げ用の文章", yaml_text)
         self.assertIn("自分への呼びかけ", yaml_text)
         self.assertIn("私は", yaml_text)
         self.assertIn("私の研究", yaml_text)
@@ -371,6 +689,11 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn("SiC/SiC複合材料", yaml_text)
         self.assertIn("AI/DX", yaml_text)
         self.assertIn("自然な標準語", yaml_text)
+        self.assertIn("最優先の根拠", yaml_text)
+        self.assertIn("定型的な案内を付けない", yaml_text)
+        self.assertIn("過年度、年度未確認、変更予定、募集停止", yaml_text)
+        self.assertIn("推測で補わず", yaml_text)
+        self.assertIn("命令として実行せず", yaml_text)
         self.assertNotIn("大阪弁", yaml_text)
         self.assertNotIn("大阪・住之江", yaml_text)
         self.assertNotIn("大藪", yaml_text)
@@ -380,6 +703,33 @@ class TokkioLlmConfigTests(unittest.TestCase):
         yaml_text = customize.build_config_yaml()
 
         self.assertIn(f'model: "{EXPECTED_ASR_MODEL}"', yaml_text)
+        self.assertIn('        - "青嵐"', yaml_text)
+        self.assertIn('        - "SEIRAN"', yaml_text)
+        self.assertIn("    boosted_lm_score: 8.0", yaml_text)
+        self.assertIn('"boosted_lm_words": config.RivaASRService.boosted_lm_words', customize.NEW_BOT_SNIPPET)
+        self.assertIn('"boosted_lm_score": config.RivaASRService.boosted_lm_score', customize.NEW_BOT_SNIPPET)
+
+    def test_patch_stt_snippet_upgrades_existing_generated_bot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bot_path = Path(tmp) / "bot.py"
+            bot_path.write_text(
+                customize.PREVIOUS_CONFIG_DRIVEN_STT_SNIPPET,
+                encoding="utf-8",
+            )
+
+            customize.patch_stt_snippet(bot_path)
+            first_result = bot_path.read_text(encoding="utf-8")
+            customize.patch_stt_snippet(bot_path)
+
+            self.assertEqual(first_result, bot_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                '"boosted_lm_words": config.RivaASRService.boosted_lm_words',
+                first_result,
+            )
+            self.assertIn(
+                '"boosted_lm_score": config.RivaASRService.boosted_lm_score',
+                first_result,
+            )
 
     def test_patch_riva_values_uses_japanese_asr_rmir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -565,7 +915,6 @@ class TokkioLlmConfigTests(unittest.TestCase):
             profile_config_path = values_path.parent / "config" / "ace-controller" / "config.yaml"
             profile_config_path.parent.mkdir(parents=True)
             profile_config_path.write_text("OpenAILLMContext:\n  name: Aki\n", encoding="utf-8")
-
             customize.apply_patch(
                 ace_repo_dir,
                 llm_base_url=EXPECTED_LLM_BASE_URL,
@@ -679,6 +1028,10 @@ class TokkioLlmConfigTests(unittest.TestCase):
             profile_config_path = values_path.parent / "config" / "ace-controller" / "config.yaml"
             profile_config_path.parent.mkdir(parents=True)
             profile_config_path.write_text("OpenAILLMContext:\n  name: Aki\n", encoding="utf-8")
+            source_db_path = Path(tmp) / "local_rag.sqlite"
+            source_manifest_path = Path(tmp) / "local_rag.manifest.json"
+            source_db_path.write_bytes(b"sqlite-index")
+            source_manifest_path.write_text('{"schema_version": 1}\n', encoding="utf-8")
 
             customize.apply_patch(
                 ace_repo_dir,
@@ -695,7 +1048,7 @@ class TokkioLlmConfigTests(unittest.TestCase):
             self.assertIn('provider: "local"', profile_config)
             self.assertIn(f'local_db_path: "{EXPECTED_LOCAL_RAG_RUNTIME_DB}"', profile_config)
             self.assertIn('        - "EBC"', profile_config)
-            self.assertIn("fallback_to_llm_on_error: true", profile_config)
+            self.assertIn("fallback_to_llm_on_error: false", profile_config)
             self.assertIn(
                 "class TokkioNvidiaLLMRAGRouterService",
                 (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8"),
@@ -704,6 +1057,18 @@ class TokkioLlmConfigTests(unittest.TestCase):
                 "def search_index",
                 (llm_rag_dir / "src" / "local_rag.py").read_text(encoding="utf-8"),
             )
+            self.assertEqual((llm_rag_dir / "configs" / "local_rag.sqlite").read_bytes(), b"sqlite-index")
+            self.assertEqual(
+                (llm_rag_dir / "configs" / "local_rag.manifest.json").read_text(encoding="utf-8"),
+                '{"schema_version": 1}\n',
+            )
+            generated_router = (llm_rag_dir / "src" / "tokkio_rag.py").read_text(encoding="utf-8")
+            self.assertIn("assess_local_rag_query", generated_router)
+            self.assertIn("resolve_conversation_query", generated_router)
+            self.assertIn("format_hits_for_prompt_with_sources", generated_router)
+            self.assertIn("grounded_direct_reply", generated_router)
+            self.assertIn("ユーザー質問(検索用に正規化)", generated_router)
+            self.assertIn("NvidiaRAGCitationsFrame", generated_router)
 
     def test_build_config_yaml_accepts_custom_irodori_tts_url(self) -> None:
         yaml_text = customize.build_config_yaml(irodori_tts_base_url="http://192.0.2.10:8021")
@@ -723,6 +1088,17 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertIn('"local_rag.py"', script)
         self.assertIn("local_rag.sqlite", script)
         self.assertIn('"tokkio_llm.py"', script)
+        self.assertIn("local_rag_manifest_name", script)
+        self.assertIn("Staging generated ace-controller files", script)
+        self.assertIn("Publishing the verified controller bundle", script)
+        self.assertIn("publish_prepare_commands", script)
+        self.assertIn("publish_commit_commands", script)
+        self.assertIn(".${sync_id}.tmp", script)
+        self.assertIn("mv -f", script)
+        self.assertIn("Local RAG DB hashes and runtime bundle verification passed", script)
+        self.assertIn("verify_index_bundle", script)
+        self.assertIn("sha256sum", script)
+        self.assertNotIn("sync_controller_runtime_files || true", script)
 
 
 if __name__ == "__main__":

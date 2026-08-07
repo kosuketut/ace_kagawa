@@ -15,7 +15,7 @@ from urllib.parse import urljoin
 
 
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = "stockmark/stockmark-2-100b-instruct"
+DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
 
 def normalize_openai_base_url(value: str) -> str:
@@ -92,15 +92,13 @@ def get_json(url: str, *, api_key: str, timeout: float) -> tuple[int, object]:
         return response.status, json.loads(body) if body else {}
 
 
-def post_streaming_chat(
-    base_url: str,
+def build_chat_payload(
     *,
-    api_key: str,
     model: str,
     prompt: str,
     max_tokens: int,
-    timeout: float,
-) -> tuple[list[str], dict[str, float | int | None]]:
+    disable_thinking: bool = False,
+) -> dict[str, object]:
     payload = {
         "model": model,
         "stream": True,
@@ -120,6 +118,27 @@ def post_streaming_chat(
             {"role": "user", "content": prompt},
         ],
     }
+    if disable_thinking:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    return payload
+
+
+def post_streaming_chat(
+    base_url: str,
+    *,
+    api_key: str,
+    model: str,
+    prompt: str,
+    max_tokens: int,
+    timeout: float,
+    disable_thinking: bool = False,
+) -> tuple[list[str], dict[str, float | int | None]]:
+    payload = build_chat_payload(
+        model=model,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        disable_thinking=disable_thinking,
+    )
     request = urllib.request.Request(
         urljoin(f"{normalize_openai_base_url(base_url)}/", "chat/completions"),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -153,6 +172,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt", default="おすすめの昼食を一文で教えてください。")
     parser.add_argument("--max-tokens", type=int, default=512)
     parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help="Disable model reasoning when the NVIDIA NIM chat template supports it",
+    )
     return parser
 
 
@@ -193,6 +217,7 @@ def main() -> int:
             prompt=args.prompt,
             max_tokens=args.max_tokens,
             timeout=args.timeout,
+            disable_thinking=args.disable_thinking,
         )
         result["stream"] = {
             "ok": bool(deltas),

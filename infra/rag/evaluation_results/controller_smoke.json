@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "evaluated_at": "2026-07-16T09:11:59.897000+00:00",
+  "namespace": "app",
+  "pod": "ace-controller-ace-controller-deployment-0",
+  "pod_ready": true,
+  "pod_phase": "Running",
+  "pod_restart_count": 0,
+  "runtime_config": {
+    "llm_processor": "NvidiaLLMRAGRouterService",
+    "provider": "local",
+    "local_db_path": "/code/configs/local_rag.sqlite",
+    "local_top_k": 3,
+    "local_max_context_chars": 1800,
+    "route_keyword_count": 53,
+    "required_route_keywords_missing": []
+  },
+  "index_bundle": {
+    "fresh": true,
+    "index_schema_version": 4,
+    "index_sha256": "dcd7f4b9c9974870d6940a1c19426ae07d0509ac40060c6ff10213b907cc128d",
+    "corpus_fingerprint": "18d2da3538bb5728576aedf423ce7f96bb40b1a8c5924112a783bbfdee2e5d33",
+    "files_indexed": 9,
+    "chunks_indexed": 922,
+    "duplicate_chunk_id_groups": 0,
+    "empty_accessed_date": 0,
+    "empty_publisher": 0,
+    "empty_source_type": 0,
+    "created_at": "2026-07-16T07:51:36.584034+00:00"
+  },
+  "hashes": {
+    "local_rag_py": {
+      "generated": "fcbfb5c90c95f07d5bcd01f648fbf8fa8781403b25b3dc49567b9bc107100067",
+      "controller": "fcbfb5c90c95f07d5bcd01f648fbf8fa8781403b25b3dc49567b9bc107100067"
+    },
+    "tokkio_rag_py": {
+      "generated": "10469f46e9f4b7bbc4889b7f9687e422c5ea0cf3b9b5d68800ef1c0856e76212",
+      "controller": "10469f46e9f4b7bbc4889b7f9687e422c5ea0cf3b9b5d68800ef1c0856e76212"
+    },
+    "config_yaml": {
+      "generated": "eddef2d59f037de533d7c3f7cc3d28cd0b8180f9b3e6d5478dcd342d580bdb38",
+      "controller": "eddef2d59f037de533d7c3f7cc3d28cd0b8180f9b3e6d5478dcd342d580bdb38"
+    },
+    "local_rag_db": {
+      "host": "dcd7f4b9c9974870d6940a1c19426ae07d0509ac40060c6ff10213b907cc128d",
+      "generated": "dcd7f4b9c9974870d6940a1c19426ae07d0509ac40060c6ff10213b907cc128d",
+      "controller": "dcd7f4b9c9974870d6940a1c19426ae07d0509ac40060c6ff10213b907cc128d"
+    },
+    "local_rag_manifest": {
+      "host": "3d1bbfd487460fae7aff3b40df818198040875a388e6f092ee4717da4d07f4ae",
+      "generated": "3d1bbfd487460fae7aff3b40df818198040875a388e6f092ee4717da4d07f4ae",
+      "controller": "3d1bbfd487460fae7aff3b40df818198040875a388e6f092ee4717da4d07f4ae"
+    }
+  },
+  "required_cases": {
+    "must_rag_passed": 18,
+    "must_rag_total": 18,
+    "must_rag_domain_correct": 18,
+    "must_rag_grounded_top_k": 18,
+    "must_not_rag_context_injections": 0,
+    "must_not_rag_total": 7,
+    "followup_passed": 1,
+    "followup_total": 1,
+    "citation_duplicate_cases": 0,
+    "empty_prompt_cases": 0,
+    "failures": []
+  },
+  "search_latency_ms": {
+    "median": 9.272,
+    "p95": 25.019,
+    "max": 33.73
+  },
+  "endpoints": {
+    "ui": {
+      "status": 200,
+      "ok": true
+    },
+    "api_root": {
+      "status": 404,
+      "reachable": true,
+      "note": "The Tokkio API root is expected to answer even when no root route is registered."
+    },
+    "grafana": {
+      "status": 200,
+      "ok": true
+    }
+  },
+  "controller_reload": {
+    "application_startup_complete": true,
+    "rag_errors_observed": 0
+  },
+  "limitations": [
+    "The automated smoke exercised the deployed production router class, live config, local index, prompt-context construction, and citation construction inside the Ready controller pod; it did not submit microphone audio through the browser UI.",
+    "A separate hosted-LLM answer probe was not performed because kubectl exec does not inherit the running process API key and secret extraction from another process was intentionally avoided."
+  ]
+}

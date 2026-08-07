@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXPECTED_DEFAULT_MODEL = "stockmark/stockmark-2-100b-instruct"
+EXPECTED_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
 
 def load_module(name: str, path: Path):
@@ -27,7 +27,7 @@ merge_lora = load_module("merge_osaka_swallow_lora", ROOT / "infra" / "llm" / "m
 
 
 class LlmEndpointToolTests(unittest.TestCase):
-    def test_endpoint_check_defaults_to_stockmark_100b_instruct(self) -> None:
+    def test_endpoint_check_defaults_to_nemotron_ultra(self) -> None:
         self.assertEqual(check_llm.DEFAULT_MODEL, EXPECTED_DEFAULT_MODEL)
 
     def test_arg_parser_reuses_tokkio_nvidia_api_key(self) -> None:
@@ -50,6 +50,19 @@ class LlmEndpointToolTests(unittest.TestCase):
         ]
 
         self.assertEqual(list(check_llm.parse_chat_sse_deltas(lines)), ["まいど", "。"])
+
+    def test_chat_payload_can_disable_nemotron_reasoning(self) -> None:
+        payload = check_llm.build_chat_payload(
+            model=EXPECTED_DEFAULT_MODEL,
+            prompt="確認",
+            max_tokens=64,
+            disable_thinking=True,
+        )
+
+        self.assertEqual(
+            payload["chat_template_kwargs"],
+            {"enable_thinking": False},
+        )
 
     def test_summarize_token_timings_reports_ttft_and_itl(self) -> None:
         timings = check_llm.summarize_token_timings(start_time=10.0, token_times=[10.25, 10.35, 10.50])

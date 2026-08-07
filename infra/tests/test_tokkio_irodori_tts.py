@@ -175,6 +175,7 @@ class TokkioIrodoriTtsTests(unittest.IsolatedAsyncioTestCase):
                 stream_chunk_bytes=4096,
             )
 
+            self.assertFalse(service.push_stop_frames)
             frames = [frame async for frame in service.run_tts("こんにちは。")]
 
             audio_frames = [frame for frame in frames if isinstance(frame, TTSAudioRawFrame)]

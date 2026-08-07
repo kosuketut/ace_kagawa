@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-07-19T02:12:00+00:00",
+  "observed_failure": {
+    "asr_transcripts": [
+      "トップ五百では",
+      "ええ",
+      "何位でしたか",
+      "セーラのトップ五百について教えてください"
+    ],
+    "route": "direct_llm",
+    "incorrect_answer": "参考情報に青嵐のTOP500順位は記載されていないため、確認できません。"
+  },
+  "root_cause": [
+    "TOP500 was spoken as トップ五百 and split across multiple ASR final transcripts.",
+    "青嵐 was recognized as セーラ or 西ラ.",
+    "The unnormalized query did not enter the SEIRAN local-RAG domain."
+  ],
+  "fix": [
+    "Normalize トップ五百 to TOP500.",
+    "Normalize the observed 青嵐 ASR variants.",
+    "Route TOP500 and HPCG directly to the SEIRAN domain.",
+    "Resolve 何位でしたか against the preceding TOP500 fragment.",
+    "Treat current_2026 evidence as current in prompt construction."
+  ],
+  "runtime": {
+    "pod": "ace-controller-ace-controller-deployment-0",
+    "pod_ready": true,
+    "index_sha256": "defc5826b990839693ac99c065b06be5cd483a33c09f1cc2e174158654580e01",
+    "normalized_alias_query": "青嵐のTOP500について教えてください",
+    "resolved_fragmented_query": "TOP500では\nフォローアップ: 何位でしたか",
+    "domain": "seiran",
+    "top_chunk_id": "tut-seiran-017"
+  },
+  "hosted_llm_check": {
+    "model": "nvidia/nemotron-3-ultra-550b-a55b",
+    "answer": "青嵐はTOP500の2026年6月版で世界398位に登録されています。2025年11月版の374位から順位を下げましたが、Rmaxは約3.32 PFLOPSで登録が継続しています。",
+    "ttft_ms": 556.277
+  },
+  "evaluation": {
+    "must_rag": "35/35",
+    "must_not_rag_injections": "0/7",
+    "followup_context_injection": "3/3"
+  }
+}

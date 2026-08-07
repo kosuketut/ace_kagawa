@@ -1,0 +1,328 @@
+riva-api:
+  modelRepoGenerator:
+    ngcModelConfigs:
+      triton0:
+        models:
+          - nvidia/riva/rmir_asr_conformer_unified_ja_jp_str:2.19.0
+
+audio2face-3d:
+  a2f:
+    configs:
+      stylization_config.yaml:
+        a2f:
+          # CC5 consumes the ARKit-compatible James output topology, but its
+          # facial profile should not inherit the James character's stronger
+          # mouth/tongue calibration.
+          inference_model_id: james_v2.3
+          blendshape_id: james_topo2_v2.3
+          enable_tongue_blendshapes: false
+          face_params:
+            lip_close_offset: 0.0
+            lip_open_offset: 0.0
+            lower_face_smoothing: 0.015
+            lower_face_strength: 0.9
+            skin_strength: 1.0
+          blendshape_params:
+            enable_clamping_bs_weight: true
+            weight_multipliers:
+              JawForward: 1.0
+              JawLeft: 1.0
+              JawOpen: 1.0
+              JawRight: 1.0
+              MouthClose: 1.0
+              MouthDimpleLeft: 1.0
+              MouthDimpleRight: 1.0
+              MouthFrownLeft: 1.0
+              MouthFrownRight: 1.0
+              MouthFunnel: 1.0
+              MouthLeft: 1.0
+              MouthLowerDownLeft: 1.0
+              MouthLowerDownRight: 1.0
+              MouthPressLeft: 1.0
+              MouthPressRight: 1.0
+              MouthPucker: 1.0
+              MouthRight: 1.0
+              MouthRollLower: 1.0
+              MouthRollUpper: 1.0
+              MouthShrugLower: 1.0
+              MouthShrugUpper: 1.0
+              MouthSmileLeft: 1.0
+              MouthSmileRight: 1.0
+              MouthStretchLeft: 1.0
+              MouthStretchRight: 1.0
+              MouthUpperUpLeft: 1.0
+              MouthUpperUpRight: 1.0
+              TongueOut: 0.0
+
+tokkio-app:
+  ia-unreal-renderer-microservice:
+    unrealEngine:
+      version: "5.5"
+      signallingServerImage: pixelstreamingunofficial/pixel-streaming-signalling-server
+      signallingServerVersion: "5.5"
+
+    storageClaims:
+      assets:
+        spec:
+          resources:
+            requests:
+              storage: 8Gi
+
+    applicationSpecs:
+      deployment:
+        initContainers:
+          - name: stage-cc5-project
+            image: nvcr.io/nvidia/ace/ia-unreal-renderer-microservice:0.1.3
+            imagePullPolicy: IfNotPresent
+            command:
+              - /bin/bash
+              - -c
+            args:
+              - |
+                set -Eeuo pipefail
+
+                SOURCE_DIR="${SOURCE_DIR:-/cc5-package}"
+                ASSET_ROOT="${ASSET_ROOT:-/home/unreal-renderer}"
+                CURRENT_DIR="${ASSET_ROOT}/unrealEngineProject"
+                NEXT_DIR="${ASSET_ROOT}/unrealEngineProject.next"
+                PREV_DIR="${ASSET_ROOT}/unrealEngineProject.prev"
+                VERSION_MARKER="${CURRENT_DIR}/.cc5-package-version"
+                CC5_VERSION="${CC5_VERSION:?CC5_VERSION is required}"
+                PVC_CAPACITY_BYTES="${PVC_CAPACITY_BYTES:?PVC_CAPACITY_BYTES is required}"
+                PVC_SAFETY_MARGIN_BYTES="${PVC_SAFETY_MARGIN_BYTES:-536870912}"
+                TARGET_UID="${TARGET_UID:-1000}"
+                TARGET_GID="${TARGET_GID:-1000}"
+                EXPECTED_LAUNCHER_SHA256="${EXPECTED_LAUNCHER_SHA256:?EXPECTED_LAUNCHER_SHA256 is required}"
+                EXPECTED_EXECUTABLE_SHA256="${EXPECTED_EXECUTABLE_SHA256:?EXPECTED_EXECUTABLE_SHA256 is required}"
+                EXPECTED_UCAS_SHA256="${EXPECTED_UCAS_SHA256:?EXPECTED_UCAS_SHA256 is required}"
+
+                LAUNCHER_REL="cc5_tokkio.sh"
+                EXECUTABLE_REL="cc5_tokkio/Binaries/Linux/cc5_tokkio"
+                UCAS_REL="cc5_tokkio/Content/Paks/cc5_tokkio-Linux.ucas"
+                PROMOTION_STARTED=0
+
+                expected_marker() {
+                  printf '%s\n%s  %s\n%s  %s\n%s  %s\n' \
+                    "${CC5_VERSION}" \
+                    "${EXPECTED_LAUNCHER_SHA256}" "${LAUNCHER_REL}" \
+                    "${EXPECTED_EXECUTABLE_SHA256}" "${EXECUTABLE_REL}" \
+                    "${EXPECTED_UCAS_SHA256}" "${UCAS_REL}"
+                }
+
+                verify_hash() {
+                  local root="$1"
+                  local relative_path="$2"
+                  local expected="$3"
+                  printf '%s  %s\n' "${expected}" "${root}/${relative_path}" | sha256sum -c -
+                }
+
+                verify_three_hashes() {
+                  local root="$1"
+                  verify_hash "${root}" "${LAUNCHER_REL}" "${EXPECTED_LAUNCHER_SHA256}"
+                  verify_hash "${root}" "${EXECUTABLE_REL}" "${EXPECTED_EXECUTABLE_SHA256}"
+                  verify_hash "${root}" "${UCAS_REL}" "${EXPECTED_UCAS_SHA256}"
+                }
+
+                rollback() {
+                  local rc=$?
+                  trap - EXIT INT TERM
+                  if [[ "${rc}" -ne 0 ]]; then
+                    echo "CC5 staging failed with rc=${rc}; preserving or restoring the previous project" >&2
+                    if [[ "${PROMOTION_STARTED}" -eq 1 ]]; then
+                      rm -rf "${CURRENT_DIR}"
+                      if [[ -d "${PREV_DIR}" ]]; then
+                        mv "${PREV_DIR}" "${CURRENT_DIR}"
+                      fi
+                    fi
+                    rm -rf "${NEXT_DIR}"
+                  fi
+                  exit "${rc}"
+                }
+                trap rollback EXIT INT TERM
+
+                echo "Validating CC5 source version ${CC5_VERSION}"
+                verify_three_hashes "${SOURCE_DIR}"
+
+                if [[ -f "${VERSION_MARKER}" ]] \
+                  && [[ "$(cat "${VERSION_MARKER}")" == "$(expected_marker)" ]] \
+                  && verify_three_hashes "${CURRENT_DIR}" >/dev/null; then
+                  rm -rf "${NEXT_DIR}"
+                  echo "CC5 ${CC5_VERSION} is already installed and verified; skipping copy"
+                  trap - EXIT INT TERM
+                  exit 0
+                fi
+
+                rm -rf "${NEXT_DIR}"
+                CURRENT_USAGE_BYTES="$(du -sb "${ASSET_ROOT}" | awk '{print $1}')"
+                SOURCE_BYTES="$(du -sb "${SOURCE_DIR}" | awk '{print $1}')"
+                REQUIRED_LOGICAL_BYTES="$((CURRENT_USAGE_BYTES + SOURCE_BYTES + PVC_SAFETY_MARGIN_BYTES))"
+                FILESYSTEM_AVAILABLE_BYTES="$(df -PB1 "${ASSET_ROOT}" | awk 'NR == 2 {print $4}')"
+                REQUIRED_FILESYSTEM_BYTES="$((SOURCE_BYTES + PVC_SAFETY_MARGIN_BYTES))"
+
+                echo "CC5 capacity check: current=${CURRENT_USAGE_BYTES} source=${SOURCE_BYTES} safety=${PVC_SAFETY_MARGIN_BYTES} required=${REQUIRED_LOGICAL_BYTES} pvc=${PVC_CAPACITY_BYTES} filesystem_available=${FILESYSTEM_AVAILABLE_BYTES}"
+                if (( REQUIRED_LOGICAL_BYTES > PVC_CAPACITY_BYTES )); then
+                  echo "insufficient logical PVC capacity: required=${REQUIRED_LOGICAL_BYTES}, capacity=${PVC_CAPACITY_BYTES}" >&2
+                  exit 20
+                fi
+                if (( REQUIRED_FILESYSTEM_BYTES > FILESYSTEM_AVAILABLE_BYTES )); then
+                  echo "insufficient filesystem capacity: required=${REQUIRED_FILESYSTEM_BYTES}, available=${FILESYSTEM_AVAILABLE_BYTES}" >&2
+                  exit 21
+                fi
+
+                echo "Staging CC5 project into ${NEXT_DIR}"
+                mkdir -p "${NEXT_DIR}"
+                cp -a "${SOURCE_DIR}/." "${NEXT_DIR}/"
+                verify_three_hashes "${NEXT_DIR}"
+
+                chown -R "${TARGET_UID}:${TARGET_GID}" "${NEXT_DIR}"
+                chmod -R u+rwX,go+rX "${NEXT_DIR}"
+                expected_marker > "${NEXT_DIR}/.cc5-package-version"
+                chown "${TARGET_UID}:${TARGET_GID}" "${NEXT_DIR}/.cc5-package-version"
+                chmod 0644 "${NEXT_DIR}/.cc5-package-version"
+
+                echo "Promoting staged CC5 project and retaining rollback copy"
+                rm -rf "${PREV_DIR}"
+                if [[ -d "${CURRENT_DIR}" ]]; then
+                  mv "${CURRENT_DIR}" "${PREV_DIR}"
+                fi
+                PROMOTION_STARTED=1
+                mv "${NEXT_DIR}" "${CURRENT_DIR}"
+                PROMOTION_STARTED=0
+
+                echo "CC5 ${CC5_VERSION} staged, verified, permissioned, and promoted"
+                trap - EXIT INT TERM
+            env:
+              - name: SOURCE_DIR
+                value: /cc5-package
+              - name: ASSET_ROOT
+                value: /home/unreal-renderer
+              - name: CC5_VERSION
+                value: "2026-07-15"
+              - name: PVC_CAPACITY_BYTES
+                value: "8589934592"
+              - name: PVC_SAFETY_MARGIN_BYTES
+                value: "536870912"
+              - name: TARGET_UID
+                value: "1000"
+              - name: TARGET_GID
+                value: "1000"
+              - name: EXPECTED_LAUNCHER_SHA256
+                value: 031bc7c70cd6287bd1cc4d83ab78c830a91ae6b93fc4b161d2041723a036b1b9
+              - name: EXPECTED_EXECUTABLE_SHA256
+                value: b94406c48b585cb5701b7d117ef3667eeaa241db8bf7b7297dd173f65d418f77
+              - name: EXPECTED_UCAS_SHA256
+                value: a34591ba2babf989dec7d928d989b7a08f117397dd3038c731997235e8ad21ba
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              allowPrivilegeEscalation: false
+            volumeMounts:
+              - name: asset-volume
+                mountPath: /home/unreal-renderer
+              - name: cc5-package-source
+                mountPath: /cc5-package
+                readOnly: true
+
+        containers:
+          ms:
+            env:
+              - name: IAUEMS_HTTP_SERVER_PORT
+                value: "8021"
+              - name: IAUEMS_SIGNALLING_SERVER_STREAMER_HOST
+                value: localhost
+              - name: IAUEMS_SIGNALLING_SERVER_STREAMER_PORT
+                value: "8888"
+              - name: IAUEMS_RESOURCE_DOWNLOAD_DESTINATION
+                value: /home/unreal-renderer
+              - name: IAUEMS_WINDOW_WIDTH
+                value: "1920"
+              - name: IAUEMS_WINDOW_HEIGHT
+                value: "1080"
+              - name: IAUEMS_PROPAGATE_API_ROUTE
+                value: /ue/
+              - name: IAUEMS_ACE_PLUGIN_CONFIG_CONNECTION_TIMEOUT
+                value: "1.0"
+              - name: IAUEMS_ACE_PLUGIN_CONFIG_NUM_CONNECTION_ATTEMPTS
+                value: "900"
+              - name: IAUEMS_ACE_PLUGIN_CONFIG_TIME_BETWEEN_RETRY_SECONDS
+                value: "1.0"
+              - name: IAUEMS_ACE_PLUGIN_CONFIG_BUFFER_LENGTH_IN_SECONDS
+                value: "0.1"
+              - name: IAUEMS_ANIM_SOURCE_HOST
+                value: anim-graph-sdr-envoy-sdr-deployment-grpc-envoy-service
+              - name: IAUEMS_ANIM_SOURCE_PORT
+                value: "8100"
+              - name: IAUEMS_PROP_API_HOST
+                value: localhost
+              - name: IAUEMS_PROP_API_PORT
+                value: "31111"
+              - name: IAUEMS_DEPLOYMENT_ADDITIONAL_STARTUP_ARGS
+                value: -PixelStreamingEncoderCodec=VP8
+              - name: IAUEMS_STREAMER_ID
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.uid
+              - name: CUDA_DISABLE_CONTROL
+                value: "1"
+              - name: GPU_DISABLE_ALLOC
+                value: "False"
+              - name: GPU_ALLOC_LIMIT
+                value: "1"
+              - name: NVIDIA_VISIBLE_DEVICES
+                value: "1"
+              - name: UE_VERSION
+                value: "5.5"
+              - name: UNREAL_ENGINE_VERSION
+                value: "5.5"
+
+          signalling:
+            image:
+              repository: pixelstreamingunofficial/pixel-streaming-signalling-server
+              tag: "5.5"
+              pullPolicy: IfNotPresent
+            command:
+              - /bin/bash
+              - -c
+            args:
+              - |
+                exec node /SignallingWebServer/SignallingWebServer/dist/index.js \
+                  --serve \
+                  --console_messages=verbose \
+                  --log_config \
+                  --streamer_port="${IAUEMS_SIGNALLING_SERVER_STREAMER_PORT}" \
+                  --player_port="${IAUEMS_SIGNALLING_SERVER_HTTP_PORT}" \
+                  --peer_options="${IAUEMS_SIGNALLING_SERVER_PEER_CONNECTION_OPTIONS}" \
+                  --http_root=/SignallingWebServer/SignallingWebServer/www \
+                  --homepage=player.html
+            env:
+              - name: IAUEMS_SIGNALLING_SERVER_STREAMER_PORT
+                value: "8888"
+              - name: IAUEMS_SIGNALLING_SERVER_HTTP_PORT
+                value: "8080"
+              - name: IAUEMS_SIGNALLING_SERVER_PEER_CONNECTION_OPTIONS
+                valueFrom:
+                  configMapKeyRef:
+                    key: IAUEMS_SIGNALLING_SERVER_PEER_CONNECTION_OPTIONS
+                    name: ia-unreal-renderer-microservice-configs-cm
+              - name: MY_POD_IP
+                valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP
+              - name: NVIDIA_VISIBLE_DEVICES
+                value: "1"
+              - name: UE_VERSION
+                value: "5.5"
+              - name: UNREAL_ENGINE_VERSION
+                value: "5.5"
+
+        volumes:
+          - name: asset-volume
+            persistentVolumeClaim:
+              claimName: ia-unreal-renderer-microservice-assets
+          - name: cache-volume
+            emptyDir:
+              sizeLimit: 5000Mi
+          - name: cc5-package-source
+            hostPath:
+              path: /home2/ko66/ace-sandbox/tokkio/unreal-resources/cc5_tokkio/2026-07-15
+              type: Directory

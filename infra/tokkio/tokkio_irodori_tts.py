@@ -34,7 +34,11 @@ class IrodoriTTSService(TTSService):
         super().__init__(
             sample_rate=sample_rate,
             push_text_frames=False,
-            push_stop_frames=True,
+            # run_tts emits an explicit TTSStoppedFrame after the HTTP audio
+            # stream is exhausted.  Enabling the base service's idle timeout
+            # as well can close Audio2Face while Irodori is still synthesizing
+            # a long sentence (the live timeout is two seconds).
+            push_stop_frames=False,
             **kwargs,
         )
         self._base_url = base_url.rstrip("/")

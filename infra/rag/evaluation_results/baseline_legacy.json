@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "evaluated_at": "2026-07-16T06:28:24.189459+00:00",
+  "routing_mode": "legacy-keywords",
+  "db_path": "/data/ACE/data/rag/local/local_rag.sqlite",
+  "top_k": 3,
+  "summary": {
+    "must_rag_count": 9,
+    "must_not_rag_count": 7,
+    "must_rag_routing_success_rate": 0.3333333333333333,
+    "must_rag_top_k_grounding_rate": 0.5555555555555556,
+    "must_not_rag_context_injections": 2,
+    "search_latency_ms": {
+      "min": 31.002,
+      "median": 35.895,
+      "p95": 43.987,
+      "max": 43.987
+    }
+  },
+  "cases": [
+    {
+      "id": "kagawa_fields",
+      "query": "香川先生の専門分野は何ですか",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": null,
+      "reason": "legacy_keyword_match",
+      "search_ms": 43.02,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_birth_degree_fields",
+        "chunk_kagawa_yutaka_profile_basic",
+        "chunk_kagawa_yutaka_kaken_keywords"
+      ],
+      "top_scores": [
+        309.116,
+        213.153,
+        179.828
+      ],
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "kagawa_career",
+      "query": "香川先生の経歴を教えてください",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": null,
+      "reason": "legacy_keyword_match",
+      "search_ms": 41.057,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_career_tut_roles",
+        "chunk_kagawa_yutaka_career_tokyo_university",
+        "chunk_kagawa_yutaka_education"
+      ],
+      "top_scores": [
+        234.121,
+        234.086,
+        104.907
+      ],
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "ebc",
+      "query": "EBCとは何ですか",
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": null,
+      "reason": "legacy_keyword_match",
+      "search_ms": 36.175,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_keywords",
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_nedo_cmc_reliability"
+      ],
+      "top_scores": [
+        152.268,
+        112.0,
+        112.0
+      ],
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "hachioji_access",
+      "query": "八王子キャンパスへのアクセスは",
+      "expectation": "must_rag",
+      "domain": "access",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 43.987,
+      "top_chunk_ids": [
+        "chunk_access_hachioji_from_hachioji_station",
+        "chunk_access_hachioji_from_minamino_station",
+        "chunk_spoken_hachioji_access"
+      ],
+      "top_scores": [
+        504.833,
+        504.751,
+        312.451
+      ],
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "ao_admission",
+      "query": "総合型選抜について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 35.615,
+      "top_chunk_ids": [
+        "chunk_admission_2027_ao_all",
+        "chunk_admission_2027_ao_feature",
+        "chunk_admission_2027_calendar"
+      ],
+      "top_scores": [
+        208.184,
+        208.177,
+        112.0
+      ],
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "next_open_campus",
+      "query": "次のオープンキャンパスはいつですか",
+      "expectation": "must_rag",
+      "domain": "open_campus",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 41.652,
+      "top_chunk_ids": [
+        "chunk_oc_20260719_hachioji_summary_01",
+        "chunk_oc_20260719_hachioji_summary_02",
+        "chunk_oc_20260719_hachioji_summary_03"
+      ],
+      "top_scores": [
+        182.0,
+        182.0,
+        182.0
+      ],
+      "grounded_in_top_k": false
+    },
+    {
+      "id": "hachioji_faculties",
+      "query": "八王子キャンパスにはどの学部がありますか",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 41.825,
+      "top_chunk_ids": [
+        "chunk_oc_20260719_hachioji_summary_13",
+        "chunk_oc_20260719_hachioji_summary_07",
+        "chunk_oc_20260719_hachioji_summary_12"
+      ],
+      "top_scores": [
+        230.027,
+        230.026,
+        230.026
+      ],
+      "grounded_in_top_k": false
+    },
+    {
+      "id": "university_overview",
+      "query": "東京工科大学の概要を教えてください",
+      "expectation": "must_rag",
+      "domain": "university",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 36.284,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_career_tut_roles",
+        "chunk_kagawa_yutaka_profile_basic",
+        "chunk_kagawa_yutaka_president_appointment"
+      ],
+      "top_scores": [
+        82.072,
+        58.068,
+        58.059
+      ],
+      "grounded_in_top_k": false
+    },
+    {
+      "id": "pamphlet",
+      "query": "大学案内パンフレットはどこで見られますか",
+      "expectation": "must_rag",
+      "domain": "pamphlet",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 32.779,
+      "top_chunk_ids": [
+        "chunk_oc_20260719_hachioji",
+        "chunk_oc_20260719_hachioji_summary_01",
+        "chunk_oc_20260719_hachioji_summary_02"
+      ],
+      "top_scores": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "grounded_in_top_k": false
+    },
+    {
+      "id": "greeting",
+      "query": "おはようございます",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 31.002,
+      "top_chunk_ids": [
+        "chunk_oc_20260719_hachioji",
+        "chunk_oc_20260719_hachioji_summary_01",
+        "chunk_oc_20260719_hachioji_summary_02"
+      ],
+      "top_scores": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "assistant_name",
+      "query": "あなたの名前は",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 31.533,
+      "top_chunk_ids": [
+        "chunk_visitor_disc_www_teu_ac_jp_entrance_online_soudan_html_8bf55ff6_01",
+        "chunk_visitor_faculty_eng_page_01",
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_202603171510_html_f3376cd2_01"
+      ],
+      "top_scores": [
+        8.304,
+        6.683,
+        6.14
+      ],
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "weather",
+      "query": "今日の天気は",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 31.553,
+      "top_chunk_ids": [
+        "chunk_oc_20260719_hachioji",
+        "chunk_oc_20260719_hachioji_summary_01",
+        "chunk_oc_20260719_hachioji_summary_02"
+      ],
+      "top_scores": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "weather_detail",
+      "query": "今日の天気を詳しく教えてください",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": null,
+      "reason": "legacy_keyword_match",
+      "search_ms": 33.737,
+      "top_chunk_ids": [
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_202410161515_html_1386282e_01",
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_202201201744_html_4e15d35e_01",
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_202112231258_html_c9d6e8e8_01"
+      ],
+      "top_scores": [
+        6.357,
+        6.13,
+        6.104
+      ],
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "dinner",
+      "query": "おすすめの夕食を教えてください",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 32.561,
+      "top_chunk_ids": [
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_newstudent_osusume2026_html_618804a7_01",
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_osusumehon_2021_html_a86d2266_01",
+        "chunk_visitor_disc_www_teu_ac_jp_lib_4259_newstudent_osusume_h2023_html_fb6cf4c4_01"
+      ],
+      "top_scores": [
+        7.677,
+        7.585,
+        7.574
+      ],
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "unknown_person",
+      "query": "山田太郎教授の経歴を教えてください",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": null,
+      "reason": "legacy_keyword_match",
+      "search_ms": 36.723,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_career_tut_roles",
+        "chunk_kagawa_yutaka_career_tokyo_university",
+        "chunk_kagawa_yutaka_education"
+      ],
+      "top_scores": [
+        230.227,
+        230.208,
+        101.0
+      ],
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "unknown_admission_system",
+      "query": "未来創造特別選抜制度について教えてください",
+      "expectation": "must_not_rag",
+      "domain": "",
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": null,
+      "reason": "legacy_no_keyword_match",
+      "search_ms": 33.96,
+      "top_chunk_ids": [
+        "chunk_admission_2027_calendar",
+        "chunk_admission_2027_ao_all",
+        "chunk_admission_2027_ao_feature"
+      ],
+      "top_scores": [
+        112.0,
+        112.0,
+        112.0
+      ],
+      "grounded_in_top_k": null
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-07-19T01:56:00+00:00",
+  "namespace": "app",
+  "pod": "ace-controller-ace-controller-deployment-0",
+  "pod_ready": true,
+  "runtime_db_path": "/code/configs/local_rag.sqlite",
+  "bundle_verified": true,
+  "index_sha256": {
+    "host": "df941a74dfa54a715692c23cec3e573ca29b1ae8704b3979b01e828adfbea85e",
+    "generated": "df941a74dfa54a715692c23cec3e573ca29b1ae8704b3979b01e828adfbea85e",
+    "controller": "df941a74dfa54a715692c23cec3e573ca29b1ae8704b3979b01e828adfbea85e"
+  },
+  "cases": [
+    {
+      "query": "スパコンについて教えてください",
+      "route_candidate": true,
+      "domain": "seiran",
+      "top_chunk_ids": ["tut-seiran-001", "tut-seiran-002", "tut-seiran-004"]
+    },
+    {
+      "query": "青嵐のGPUは何基ですか",
+      "route_candidate": true,
+      "domain": "seiran",
+      "top_chunk_ids": ["tut-seiran-006", "tut-seiran-015", "tut-seiran-001"]
+    },
+    {
+      "query": "青嵐の最新のTOP500順位は何位ですか",
+      "route_candidate": true,
+      "domain": "seiran",
+      "top_chunk_ids": ["tut-seiran-017", "tut-seiran-014", "tut-seiran-019"]
+    },
+    {
+      "query": "青嵐の利用申請方法や料金を教えてください",
+      "route_candidate": true,
+      "domain": "seiran",
+      "top_chunk_ids": ["tut-seiran-029", "tut-seiran-001", "tut-seiran-002"]
+    }
+  ],
+  "coverage_limitations": [
+    "Final hosted-LLM wording and browser/audio transport were not exercised by this smoke test."
+  ]
+}

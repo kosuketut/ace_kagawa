@@ -17,7 +17,7 @@
   - system prompt に、東京工科大学 学長、片柳研究所 教授、セラミックス複合材料センター長、材料強度学・複合材料・CMC・SiC/SiC 複合材料などの固定プロフィールを入れる
   - RAG suffix prompt でも、香川先生について聞かれた場合は一人称の `私は` / `私の` で答えるよう補強する
   - `NvidiaLLMService.base_url` を hosted NVIDIA NIM の OpenAI-compatible endpoint に変更
-  - `NvidiaLLMService.model` を `stockmark/stockmark-2-100b-instruct` に変更
+  - `NvidiaLLMService.model` を `nvidia/nemotron-3-ultra-550b-a55b` に変更
   - `TOKKIO_RAG_ENABLED=true` かつ `TOKKIO_RAG_MODE=auto` の場合は `Pipeline.llm_processor` を `NvidiaLLMRAGRouterService` にし、通常会話は NIM 直呼び、資料・論文・詳細質問だけ RAG に回す
   - `TOKKIO_RAG_PROVIDER=local` の場合は `/code/configs/local_rag.sqlite` を controller 内で検索し、上位 chunk を NIM prompt に注入する
   - `TOKKIO_RAG_PROVIDER=nvidia` の場合は host-side NVIDIA RAG Blueprint の `/generate` API を使う
@@ -26,8 +26,8 @@
   - `NvidiaRAGService.rag_server_url` / `collection_name` を host-side NVIDIA RAG Blueprint に合わせる
   - `NvidiaRAGService.vdb_top_k=12` / `reranker_top_k=5` / `enable_reranker=true` で検索精度を保ちながら LLM に渡す context 量を抑える
   - 表・図・画像系の質問では `multimodal_reranker_top_k=10` に自動で広げる
-  - `NvidiaRAGService.max_tokens=128` と短文プロンプトで音声対話向けの生成長に制限する
-  - `Pipeline.time_delay=6.0` で、通常のRAG応答では filler phrase より本回答を優先する
+  - `NvidiaRAGService.max_tokens=64` と「通常40〜60文字・原則1文、詳細時も100文字以内・最大2文」の短文プロンプトで音声対話向けの生成長に制限する
+  - `Pipeline.time_delay=2.5` で、通常の高速応答では filler phrase を抑えつつ、遅い RAG 応答では「確認しています」を早めに返す
   - `ASR language=ja-JP`
   - `ASR model=nvidia/nemotron-3.5-asr-streaming-0.6b`
   - `TTS processor=RivaTTSService`
@@ -43,7 +43,7 @@
 python3 infra/tokkio/customize_tokkio_japanese.py \
   --ace-repo-dir /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE \
   --llm-base-url https://integrate.api.nvidia.com/v1 \
-  --llm-model stockmark/stockmark-2-100b-instruct \
+  --llm-model nvidia/nemotron-3-ultra-550b-a55b \
   --rag-enabled true \
   --rag-mode auto \
   --rag-provider local \

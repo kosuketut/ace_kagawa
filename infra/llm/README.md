@@ -1,6 +1,6 @@
 # Osaka-Swallow TensorRT-LLM
 
-This directory contains the optional local LLM path for Tokkio realtime conversation. The current Tokkio default uses hosted NVIDIA NIM with `stockmark/stockmark-2-100b-instruct`; use this local TensorRT-LLM path only when you intentionally want to serve Osaka-Swallow on the workstation.
+This directory contains the optional local LLM path for Tokkio realtime conversation. The current Tokkio default uses hosted NVIDIA NIM with `nvidia/nemotron-3-ultra-550b-a55b`; use this local TensorRT-LLM path only when you intentionally want to serve Osaka-Swallow on the workstation.
 
 The model path is:
 

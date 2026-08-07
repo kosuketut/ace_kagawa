@@ -97,6 +97,11 @@ load_env() {
   RAG_WAIT_SECONDS="${TOKKIO_RAG_WAIT_SECONDS:-2}"
   LOCAL_RAG_DB="${TOKKIO_LOCAL_RAG_DB:-data/rag/local/local_rag.sqlite}"
   LOCAL_RAG_RUNTIME_DB_PATH="${TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH:-/code/configs/local_rag.sqlite}"
+  if [[ "${LOCAL_RAG_DB}" = /* ]]; then
+    LOCAL_RAG_SOURCE_DB_PATH="${LOCAL_RAG_DB}"
+  else
+    LOCAL_RAG_SOURCE_DB_PATH="$(cd "${SCRIPT_DIR}/../.." && pwd)/${LOCAL_RAG_DB}"
+  fi
 }
 
 show_urls() {
@@ -500,6 +505,7 @@ show_status() {
 ensure_controller_runtime_source_files() {
   local source_dir="${TOKKIO_CONTROLLER_SOURCE_DIR}"
   local local_rag_db_name="${LOCAL_RAG_RUNTIME_DB_PATH##*/}"
+  local local_rag_manifest_name="${local_rag_db_name%.*}.manifest.json"
   local required_file
   local required_files=(
     "${source_dir}/src/bot.py"
@@ -517,6 +523,7 @@ ensure_controller_runtime_source_files() {
 
   if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
     [[ -f "${source_dir}/configs/${local_rag_db_name}" ]] || die "local RAG DB not found: ${source_dir}/configs/${local_rag_db_name}"
+    [[ -f "${source_dir}/configs/${local_rag_manifest_name}" ]] || die "local RAG manifest not found: ${source_dir}/configs/${local_rag_manifest_name}"
   fi
 }
 
@@ -538,7 +545,7 @@ first_pod_name_by_prefix() {
 
 wait_for_controller_ready() {
   local attempt
-  local pod_name
+  local pod_name=""
   local pod_names
 
   for attempt in $(seq 1 "${APP_WORKLOAD_WAIT_ATTEMPTS}"); do
@@ -559,8 +566,25 @@ sync_controller_runtime_files() {
   local pod_name
   local source_dir="${TOKKIO_CONTROLLER_SOURCE_DIR}"
   local local_rag_db_name="${LOCAL_RAG_RUNTIME_DB_PATH##*/}"
+  local local_rag_manifest_name="${local_rag_db_name%.*}.manifest.json"
   local local_rag_db_file="${source_dir}/configs/${local_rag_db_name}"
+  local local_rag_manifest_file="${source_dir}/configs/${local_rag_manifest_name}"
+  local source_db_hash
+  local generated_db_hash
+  local pod_db_hash_output
+  local pod_db_hash
+  local local_file_hash
+  local staged_file_hash_output
+  local staged_file_hash
+  local final_file_hash_output
+  local final_file_hash
   local src_file
+  local remote_source_root
+  local sync_id
+  local staging_dir
+  local publish_commands
+  local publish_prepare_commands
+  local publish_commit_commands
   local config_file="${source_dir}/configs/config.yaml"
   local src_files=(
     "bot.py"
@@ -572,21 +596,109 @@ sync_controller_runtime_files() {
   )
 
   ensure_controller_runtime_source_files
+  if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    source_db_hash="$(sha256sum "${LOCAL_RAG_SOURCE_DB_PATH}")"
+    source_db_hash="${source_db_hash%% *}"
+    generated_db_hash="$(sha256sum "${local_rag_db_file}")"
+    generated_db_hash="${generated_db_hash%% *}"
+    [[ "${source_db_hash}" == "${generated_db_hash}" ]] || die \
+      "local RAG DB hash mismatch before sync: host=${source_db_hash} generated=${generated_db_hash}"
+  fi
   wait_for_controller_ready
   pod_name="$(resolve_pod_by_prefix "${TOKKIO_CONTROLLER_POD_PREFIX}")"
+  sync_id="$(date +%s)-$$"
+  staging_dir="/tmp/ace-controller-sync-${sync_id}"
 
-  info "Syncing generated ace-controller files from ${source_dir} to ${pod_name}"
-  kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- mkdir -p /app/src /code/src /code/configs
+  info "Staging generated ace-controller files from ${source_dir} in ${pod_name}:${staging_dir}"
+  kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- mkdir -p \
+    "${staging_dir}/src" "${staging_dir}/configs" /app/src /code/src /code/configs
 
   for src_file in "${src_files[@]}"; do
-    kubectl cp "${source_dir}/src/${src_file}" "${APP_NAMESPACE}/${pod_name}:/app/src/${src_file}"
-    kubectl cp "${source_dir}/src/${src_file}" "${APP_NAMESPACE}/${pod_name}:/code/src/${src_file}"
+    kubectl cp "${source_dir}/src/${src_file}" "${APP_NAMESPACE}/${pod_name}:${staging_dir}/src/${src_file}"
   done
-  kubectl cp "${config_file}" "${APP_NAMESPACE}/${pod_name}:/code/configs/config.yaml"
+  kubectl cp "${config_file}" "${APP_NAMESPACE}/${pod_name}:${staging_dir}/configs/config.yaml"
   if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
-    kubectl cp "${local_rag_db_file}" "${APP_NAMESPACE}/${pod_name}:/code/configs/${local_rag_db_name}"
+    kubectl cp "${local_rag_db_file}" \
+      "${APP_NAMESPACE}/${pod_name}:${staging_dir}/configs/${local_rag_db_name}"
+    kubectl cp "${local_rag_manifest_file}" \
+      "${APP_NAMESPACE}/${pod_name}:${staging_dir}/configs/${local_rag_manifest_name}"
   fi
-  kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- touch /code/src/bot.py
+
+  for src_file in "${src_files[@]}"; do
+    local_file_hash="$(sha256sum "${source_dir}/src/${src_file}")"
+    local_file_hash="${local_file_hash%% *}"
+    staged_file_hash_output="$(kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- \
+      sha256sum "${staging_dir}/src/${src_file}")"
+    staged_file_hash="${staged_file_hash_output%% *}"
+    [[ "${local_file_hash}" == "${staged_file_hash}" ]] || die \
+      "staged controller source hash mismatch for ${src_file}: local=${local_file_hash} staged=${staged_file_hash}"
+  done
+  local_file_hash="$(sha256sum "${config_file}")"
+  local_file_hash="${local_file_hash%% *}"
+  staged_file_hash_output="$(kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- \
+    sha256sum "${staging_dir}/configs/config.yaml")"
+  staged_file_hash="${staged_file_hash_output%% *}"
+  [[ "${local_file_hash}" == "${staged_file_hash}" ]] || die \
+    "staged controller config hash mismatch: local=${local_file_hash} staged=${staged_file_hash}"
+  if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    for src_file in "${local_rag_db_name}" "${local_rag_manifest_name}"; do
+      local_file_hash="$(sha256sum "${source_dir}/configs/${src_file}")"
+      local_file_hash="${local_file_hash%% *}"
+      staged_file_hash_output="$(kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- \
+        sha256sum "${staging_dir}/configs/${src_file}")"
+      staged_file_hash="${staged_file_hash_output%% *}"
+      [[ "${local_file_hash}" == "${staged_file_hash}" ]] || die \
+        "staged local RAG bundle hash mismatch for ${src_file}: local=${local_file_hash} staged=${staged_file_hash}"
+    done
+  fi
+
+  publish_prepare_commands=""
+  publish_commit_commands=""
+  for src_file in "${src_files[@]}"; do
+    publish_prepare_commands+=" cp '${staging_dir}/src/${src_file}' '/app/src/.${src_file}.${sync_id}.tmp';"
+    publish_prepare_commands+=" cp '${staging_dir}/src/${src_file}' '/code/src/.${src_file}.${sync_id}.tmp';"
+    publish_commit_commands+=" mv -f '/app/src/.${src_file}.${sync_id}.tmp' '/app/src/${src_file}';"
+    publish_commit_commands+=" mv -f '/code/src/.${src_file}.${sync_id}.tmp' '/code/src/${src_file}';"
+  done
+  publish_prepare_commands+=" cp '${staging_dir}/configs/config.yaml' '/code/configs/.config.yaml.${sync_id}.tmp';"
+  publish_commit_commands+=" mv -f '/code/configs/.config.yaml.${sync_id}.tmp' '/code/configs/config.yaml';"
+  if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    publish_prepare_commands+=" cp '${staging_dir}/configs/${local_rag_db_name}' '/code/configs/.${local_rag_db_name}.${sync_id}.tmp';"
+    publish_prepare_commands+=" cp '${staging_dir}/configs/${local_rag_manifest_name}' '/code/configs/.${local_rag_manifest_name}.${sync_id}.tmp';"
+    publish_commit_commands+=" mv -f '/code/configs/.${local_rag_db_name}.${sync_id}.tmp' '/code/configs/${local_rag_db_name}';"
+    publish_commit_commands+=" mv -f '/code/configs/.${local_rag_manifest_name}.${sync_id}.tmp' '/code/configs/${local_rag_manifest_name}';"
+  fi
+  publish_commands="set -eu; ${publish_prepare_commands} ${publish_commit_commands} touch /code/src/bot.py; rm -rf '${staging_dir}'"
+  info "Publishing the verified controller bundle with staged copies and atomic file replacement"
+  kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- sh -c "${publish_commands}"
+
+  for remote_source_root in /app/src /code/src; do
+    for src_file in "${src_files[@]}"; do
+      local_file_hash="$(sha256sum "${source_dir}/src/${src_file}")"
+      local_file_hash="${local_file_hash%% *}"
+      final_file_hash_output="$(kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- \
+        sha256sum "${remote_source_root}/${src_file}")"
+      final_file_hash="${final_file_hash_output%% *}"
+      [[ "${local_file_hash}" == "${final_file_hash}" ]] || die \
+        "published controller source hash mismatch for ${remote_source_root}/${src_file}: local=${local_file_hash} controller=${final_file_hash}"
+    done
+  done
+  local_file_hash="$(sha256sum "${config_file}")"
+  local_file_hash="${local_file_hash%% *}"
+  final_file_hash_output="$(kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- sha256sum /code/configs/config.yaml)"
+  final_file_hash="${final_file_hash_output%% *}"
+  [[ "${local_file_hash}" == "${final_file_hash}" ]] || die \
+    "published controller config hash mismatch: local=${local_file_hash} controller=${final_file_hash}"
+  if is_rag_enabled && [[ "${RAG_PROVIDER,,}" == "local" ]]; then
+    pod_db_hash_output="$(kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- sha256sum "/code/configs/${local_rag_db_name}")"
+    pod_db_hash="${pod_db_hash_output%% *}"
+    [[ "${generated_db_hash}" == "${pod_db_hash}" ]] || die \
+      "local RAG DB hash mismatch after sync: generated=${generated_db_hash} controller=${pod_db_hash}"
+    kubectl exec -n "${APP_NAMESPACE}" "${pod_name}" -- python3 -c \
+      'import sys; from pathlib import Path; sys.path.insert(0, "/code/src"); from local_rag import verify_index_bundle; verify_index_bundle(Path(sys.argv[1]))' \
+      "${LOCAL_RAG_RUNTIME_DB_PATH}"
+    info "Local RAG DB hashes and runtime bundle verification passed: host=${source_db_hash} generated=${generated_db_hash} controller=${pod_db_hash}"
+  fi
   info "ace-controller source/config sync complete"
 }
 
@@ -684,7 +796,7 @@ case "${COMMAND}" in
     start_irodori_tts_service
     wait_for_rag_health
     restore_app_workloads || true
-    sync_controller_runtime_files || true
+    sync_controller_runtime_files
     show_status
     ;;
   stop)
@@ -714,7 +826,7 @@ case "${COMMAND}" in
     start_irodori_tts_service
     wait_for_rag_health
     restore_app_workloads || true
-    sync_controller_runtime_files || true
+    sync_controller_runtime_files
     show_status
     ;;
   reapply)
@@ -723,7 +835,7 @@ case "${COMMAND}" in
     wait_for_rag_health
     info "Reapplying Tokkio deployment from ${ENV_FILE}"
     "${SCRIPT_DIR}/deploy_tokkio.sh" install --env-file "${ENV_FILE}"
-    sync_controller_runtime_files || true
+    sync_controller_runtime_files
     show_status
     ;;
   restart-controller)

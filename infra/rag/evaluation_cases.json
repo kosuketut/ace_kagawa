@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "kagawa_fields",
+      "query": "香川先生の専門分野は何ですか",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_birth_degree_fields",
+        "chunk_kagawa_yutaka_profile_basic"
+      ]
+    },
+    {
+      "id": "kagawa_career",
+      "query": "香川先生の経歴を教えてください",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_career_tut_roles",
+        "chunk_kagawa_yutaka_career_tokyo_university",
+        "chunk_kagawa_yutaka_education"
+      ]
+    },
+    {
+      "id": "kagawa_age_current",
+      "query": "香川先生の年齢は何歳ですか",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_birth_degree_fields"
+      ]
+    },
+    {
+      "id": "ebc",
+      "query": "EBCとは何ですか",
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_keywords",
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_nedo_cmc_reliability"
+      ]
+    },
+    {
+      "id": "hachioji_access",
+      "query": "八王子キャンパスへのアクセスは",
+      "expectation": "must_rag",
+      "domain": "access",
+      "expected_chunk_ids": [
+        "chunk_access_hachioji_from_hachioji_station",
+        "chunk_access_hachioji_from_minamino_station",
+        "chunk_spoken_hachioji_access"
+      ]
+    },
+    {
+      "id": "ao_admission",
+      "query": "総合型選抜について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_64d15a9c51617664",
+        "chunk_plain_2ebfbf83b6066292",
+        "chunk_plain_404d2b83aba297f3"
+      ]
+    },
+    {
+      "id": "next_open_campus",
+      "query": "次のオープンキャンパスはいつですか",
+      "expectation": "must_rag",
+      "domain": "open_campus",
+      "expected_chunk_ids": [
+        "chunk_oc_202608_kamata",
+        "chunk_oc_202608_hachioji"
+      ]
+    },
+    {
+      "id": "hachioji_faculties",
+      "query": "八王子キャンパスにはどの学部がありますか",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_chunk_ids": [
+        "chunk_school_hachioji_campus_overview"
+      ]
+    },
+    {
+      "id": "university_overview",
+      "query": "東京工科大学の概要を教えてください",
+      "expectation": "must_rag",
+      "domain": "university",
+      "expected_chunk_ids": [
+        "chunk_school_university_features_practical_learning",
+        "chunk_school_university_student_support",
+        "chunk_school_hachioji_campus_overview"
+      ]
+    },
+    {
+      "id": "pamphlet",
+      "query": "大学案内パンフレットはどこで見られますか",
+      "expectation": "must_rag",
+      "domain": "pamphlet",
+      "expected_chunk_ids": [
+        "chunk_pamphlet_university_guide_2027",
+        "chunk_pamphlet_admission_navi_2027",
+        "chunk_pamphlet_lab_guide"
+      ]
+    },
+    {
+      "id": "kagawa_research_generic",
+      "query": "香川先生の研究について教えてください",
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_keywords",
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_profile_basic"
+      ]
+    },
+    {
+      "id": "kagawa_research_project",
+      "query": "香川先生の研究プロジェクトを教えてください",
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_nedo_cmc_reliability",
+        "chunk_kagawa_yutaka_kaken_keywords"
+      ]
+    },
+    {
+      "id": "kagawa_affiliation",
+      "query": "香川先生の所属を教えてください",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_profile_basic",
+        "chunk_kagawa_yutaka_career_tut_roles"
+      ]
+    },
+    {
+      "id": "tuition_short_term",
+      "query": "東京工科大学の学費について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_8975de5172d962ff",
+        "chunk_plain_8975de5172d962ff__part_02",
+        "chunk_plain_b8d933727a5e1c87"
+      ]
+    },
+    {
+      "id": "scholarship_without_admission_word",
+      "query": "奨学金について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_fba40326fcf24e8f",
+        "chunk_plain_8027c09f8365b7f7__part_02",
+        "chunk_plain_035acca2ee99544b"
+      ]
+    },
+    {
+      "id": "qualified_ao_admission",
+      "query": "東京工科大学の総合型選抜について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_64d15a9c51617664",
+        "chunk_plain_2ebfbf83b6066292",
+        "chunk_plain_404d2b83aba297f3"
+      ]
+    },
+    {
+      "id": "faculty_major",
+      "query": "コンピュータサイエンス学部の専攻を教えてください",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_chunk_ids": [
+        "chunk_plain_6f456b4ec94dd869",
+        "chunk_plain_a313442ff2495769"
+      ]
+    },
+    {
+      "id": "cs_admissions_2027_detailed",
+      "query": "2027年度のコンピュータサイエンス学部の入試情報について詳しく教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_effective_year": "2027",
+      "required_page_numbers": ["6", "7", "8"],
+      "expected_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_5b15188c2108b392",
+        "chunk_plain_44bf47828f453d0d"
+      ]
+    },
+    {
+      "id": "cs_admissions_asr_without_year",
+      "query": "コンピューターセンス学部の入試情報について詳しく教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_effective_year": "2027",
+      "required_page_numbers": ["6", "7", "8"],
+      "expected_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_5b15188c2108b392",
+        "chunk_plain_44bf47828f453d0d"
+      ]
+    },
+    {
+      "id": "cs_admissions_fragmented_asr_year",
+      "query": "コンピューターセンス学部の入試情報について詳しく教えてください",
+      "user_messages": [
+        "二千二十七年度の",
+        "コンピューターセンス学部の入試情報について詳しく教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_effective_year": "2027",
+      "required_page_numbers": ["6", "7", "8"],
+      "expected_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_5b15188c2108b392",
+        "chunk_plain_44bf47828f453d0d"
+      ]
+    },
+    {
+      "id": "cs_admission_subjects",
+      "query": "コンピュータサイエンス学部の指定2教科は何ですか",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_effective_year": "2027",
+      "required_page_numbers": ["7", "9"],
+      "expected_chunk_ids": [
+        "chunk_plain_4175616af622693d__part_02",
+        "chunk_plain_349b5a50ffce687b__part_02"
+      ]
+    },
+    {
+      "id": "tuition_2027_pdf_page",
+      "query": "2027年度の学費について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_82327f513139cfb2",
+        "chunk_plain_ac76cdc3ffcf66ae",
+        "chunk_plain_8975de5172d962ff"
+      ]
+    },
+    {
+      "id": "historical_admission_result_2026",
+      "query": "2026年度の入試結果を教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_6ee72602e531015b"
+      ]
+    },
+    {
+      "id": "current_faculty_list",
+      "query": "東京工科大学の学部一覧を教えてください",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_chunk_ids": [
+        "chunk_plain_0a44efa84095f4fa",
+        "chunk_plain_d1d0905af98bfcf1"
+      ]
+    },
+    {
+      "id": "planned_digital_entertainment_faculty",
+      "query": "デジタルエンターテインメント学部について教えてください",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_chunk_ids": [
+        "chunk_plain_2521eba17f7d0920",
+        "chunk_plain_d30c29ff2e1048cf"
+      ]
+    },
+    {
+      "id": "graduate_program_list",
+      "query": "東京工科大学大学院の研究科と専攻を教えてください",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_chunk_ids": [
+        "chunk_plain_5095e26ed5128cdf",
+        "chunk_plain_de29a5595f875a8f"
+      ]
+    },
+    {
+      "id": "graduate_admission_overview",
+      "query": "大学院入試について教えてください",
+      "expectation": "must_rag",
+      "domain": "graduate_admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_03edb139a2500384",
+        "chunk_plain_cb2156c14873704e"
+      ]
+    },
+    {
+      "id": "graduate_admission_calendar",
+      "query": "大学院入試の日程について教えてください",
+      "expectation": "must_rag",
+      "domain": "graduate_admissions",
+      "expected_effective_year": "2027",
+      "expected_chunk_ids": [
+        "chunk_graduate_admission_2027_calendar_bim_engineering",
+        "chunk_graduate_admission_2027_calendar_design",
+        "chunk_graduate_admission_2027_calendar_medical_technology"
+      ]
+    },
+    {
+      "id": "kagawa_profile_overview",
+      "query": "香川先生について教えてください",
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_profile_basic"
+      ]
+    },
+    {
+      "id": "student_support",
+      "query": "東京工科大学の学生支援について教えてください",
+      "expectation": "must_rag",
+      "domain": "university",
+      "expected_chunk_ids": [
+        "chunk_school_university_student_support"
+      ]
+    },
+    {
+      "id": "research_followup",
+      "query": "もう少し詳しく教えてください",
+      "user_messages": [
+        "香川先生の研究内容について教えてください",
+        "もう少し詳しく教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_keywords",
+        "chunk_kagawa_yutaka_kaken_projects"
+      ]
+    },
+    {
+      "id": "seiran_overview_generic",
+      "query": "スパコンについて教えてください",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-001"
+      ]
+    },
+    {
+      "id": "seiran_gpu_count",
+      "query": "青嵐のGPUは何基ですか",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-006"
+      ]
+    },
+    {
+      "id": "seiran_top500_current",
+      "query": "青嵐の最新のTOP500順位は何位ですか",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-017"
+      ]
+    },
+    {
+      "id": "seiran_top500_asr_alias",
+      "query": "セーラのトップ五百について教えてください",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-017"
+      ]
+    },
+    {
+      "id": "seiran_top500_repeated_asr_alias",
+      "query": "セーランセランのトップ五百について教えてください",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-017"
+      ]
+    },
+    {
+      "id": "seiran_top500_fragmented_followup",
+      "query": "何位でしたか",
+      "user_messages": [
+        "スパコンについて教えてください",
+        "トップ五百では",
+        "ええ",
+        "何位でしたか"
+      ],
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-017"
+      ]
+    },
+    {
+      "id": "seiran_usage_unpublished",
+      "query": "青嵐の利用申請方法や料金を教えてください",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-029"
+      ]
+    },
+    {
+      "id": "seiran_usage_asr_alias",
+      "query": "西ラの利用申請料金について教えてください",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-029"
+      ]
+    },
+    {
+      "id": "seiran_qualified_overview",
+      "query": "東京工科大学のスーパーコンピュータについて教えてください",
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_chunk_ids": [
+        "tut-seiran-001"
+      ]
+    },
+    {
+      "id": "greeting",
+      "query": "おはようございます",
+      "expectation": "must_not_rag"
+    },
+    {
+      "id": "assistant_name",
+      "query": "あなたの名前は",
+      "expectation": "must_not_rag"
+    },
+    {
+      "id": "weather",
+      "query": "今日の天気は",
+      "expectation": "must_not_rag"
+    },
+    {
+      "id": "weather_detail",
+      "query": "今日の天気を詳しく教えてください",
+      "expectation": "must_not_rag"
+    },
+    {
+      "id": "dinner",
+      "query": "おすすめの夕食を教えてください",
+      "expectation": "must_not_rag"
+    },
+    {
+      "id": "unknown_person",
+      "query": "山田太郎教授の経歴を教えてください",
+      "expectation": "must_not_rag"
+    },
+    {
+      "id": "unknown_admission_system",
+      "query": "未来創造特別選抜制度について教えてください",
+      "expectation": "must_not_rag"
+    }
+  ]
+}

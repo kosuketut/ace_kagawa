@@ -49,8 +49,9 @@ class TokkioIrodoriLifecycleTests(unittest.TestCase):
         self.assertIn("sync-controller", script)
         self.assertIn("sync_controller_runtime_files", script)
         self.assertIn("TOKKIO_CONTROLLER_SOURCE_DIR", script)
-        self.assertIn(":/code/src/", script)
-        self.assertIn(":/app/src/", script)
+        self.assertIn("/code/src", script)
+        self.assertIn("/app/src", script)
+        self.assertIn("Publishing the verified controller bundle", script)
         self.assertIn("tokkio_irodori_tts.py", script)
 
     def test_manage_script_does_not_control_local_llm_lifecycle(self) -> None:

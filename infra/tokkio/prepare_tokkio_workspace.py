@@ -15,23 +15,24 @@ import sys
 
 DEFAULT_WORKSPACE_DIR = Path(__file__).resolve().parent / "workspace"
 DEFAULT_LLM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_LLM_MODEL = "stockmark/stockmark-2-100b-instruct"
+DEFAULT_LLM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 DEFAULT_LLM_API_KEY = ""
 DEFAULT_IRODORI_TTS_PORT = "8021"
 DEFAULT_IRODORI_TTS_SERVICE = "ace-irodori-tts.service"
 DEFAULT_RAG_PORT = "8081"
 DEFAULT_RAG_COLLECTION_NAME = "ace_kagawa"
-DEFAULT_RAG_SUFFIX_PROMPT = "日本語で簡潔に答えてください。"
-DEFAULT_RAG_MAX_TOKENS = 128
+DEFAULT_RAG_SUFFIX_PROMPT = "日本語で通常40から60文字、原則1文で簡潔に答えてください。詳しい説明を求められた場合だけ100文字以内、最大2文にしてください。香川先生や香川豊先生について聞かれた場合は、自分のこととして「私は」または「私の」で答えてください。箇条書きは求められた時だけにしてください。"
+DEFAULT_RAG_MAX_TOKENS = 64
 DEFAULT_RAG_VDB_TOP_K = 12
 DEFAULT_RAG_RERANKER_TOP_K = 5
 DEFAULT_RAG_MULTIMODAL_RERANKER_TOP_K = 10
 DEFAULT_RAG_MODE = "auto"
 DEFAULT_RAG_PROVIDER = "local"
+DEFAULT_LOCAL_RAG_CORPUS_PATH = "data/rag/corpus"
 DEFAULT_LOCAL_RAG_DB_PATH = "data/rag/local/local_rag.sqlite"
 DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH = "/code/configs/local_rag.sqlite"
 DEFAULT_LOCAL_RAG_TOP_K = 3
-DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS = 1800
+DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS = 2800
 DEFAULT_RAG_ROUTE_KEYWORDS = [
     "論文",
     "文献",
@@ -40,8 +41,26 @@ DEFAULT_RAG_ROUTE_KEYWORDS = [
     "資料",
     "ドキュメント",
     "引用",
-    "詳細",
-    "詳しく",
+    "香川先生",
+    "香川豊",
+    "東京工科大学",
+    "大学概要",
+    "学部",
+    "学科",
+    "専攻",
+    "アクセス",
+    "入試",
+    "受験",
+    "選抜",
+    "総合型選抜",
+    "学費",
+    "入学金",
+    "授業料",
+    "奨学金",
+    "オープンキャンパス",
+    "パンフレット",
+    "大学案内",
+    "学生支援",
     "経歴",
     "学歴",
     "職歴",
@@ -59,6 +78,7 @@ DEFAULT_RAG_ROUTE_KEYWORDS = [
     "業績",
     "研究業績",
     "研究内容",
+    "研究",
     "プロジェクト",
     "発表",
     "受賞",
@@ -68,7 +88,7 @@ DEFAULT_RAG_ROUTE_KEYWORDS = [
     "SiC/SiC",
     "非破壊評価",
 ]
-DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR = True
+DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR = False
 
 
 @dataclass(frozen=True)
@@ -102,6 +122,7 @@ class RagSettings:
     suffix_prompt: str
     route_keywords: list[str]
     fallback_to_llm_on_error: bool
+    local_corpus_path: str
     local_db_path: str
     local_runtime_db_path: str
     local_top_k: int
@@ -268,6 +289,9 @@ def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
             "TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR",
             default=DEFAULT_RAG_FALLBACK_TO_LLM_ON_ERROR,
         ),
+        local_corpus_path=(
+            values.get("TOKKIO_LOCAL_RAG_CORPUS", "").strip() or DEFAULT_LOCAL_RAG_CORPUS_PATH
+        ),
         local_db_path=values.get("TOKKIO_LOCAL_RAG_DB", "").strip() or DEFAULT_LOCAL_RAG_DB_PATH,
         local_runtime_db_path=(
             values.get("TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH", "").strip() or DEFAULT_LOCAL_RAG_RUNTIME_DB_PATH
@@ -279,6 +303,35 @@ def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
             DEFAULT_LOCAL_RAG_MAX_CONTEXT_CHARS,
         ),
     )
+
+
+def verify_local_rag_index(rag_settings: RagSettings) -> dict:
+    if not rag_settings.enabled or rag_settings.provider != "local":
+        return {"checked": False, "reason": "local_provider_not_enabled"}
+    repo_root = Path(__file__).resolve().parents[2]
+    corpus_path = Path(rag_settings.local_corpus_path).expanduser()
+    db_path = Path(rag_settings.local_db_path).expanduser()
+    if not corpus_path.is_absolute():
+        corpus_path = repo_root / corpus_path
+    if not db_path.is_absolute():
+        db_path = repo_root / db_path
+    verifier = repo_root / "infra" / "rag" / "verify_local_index.py"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(verifier),
+            "--corpus",
+            str(corpus_path),
+            "--db",
+            str(db_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = json.loads(completed.stdout)
+    result["checked"] = True
+    return result
 
 
 def is_enabled(values: dict[str, str], key: str, default: bool = False) -> bool:
@@ -435,6 +488,7 @@ def main() -> int:
     llm_settings = resolve_llm_settings(values)
     irodori_tts_settings = resolve_irodori_tts_settings(values)
     rag_settings = resolve_rag_settings(values)
+    local_rag_freshness = verify_local_rag_index(rag_settings)
     japanese_customization = maybe_apply_japanese_customization(values, ace_repo_dir)
     manifest = {
         "env_file": str(env_path),
@@ -471,10 +525,12 @@ def main() -> int:
             "enable_reranker": rag_settings.enable_reranker,
             "route_keywords": rag_settings.route_keywords,
             "fallback_to_llm_on_error": rag_settings.fallback_to_llm_on_error,
+            "local_corpus_path": rag_settings.local_corpus_path,
             "local_db_path": rag_settings.local_db_path,
             "local_runtime_db_path": rag_settings.local_runtime_db_path,
             "local_top_k": rag_settings.local_top_k,
             "local_max_context_chars": rag_settings.local_max_context_chars,
+            "freshness": local_rag_freshness,
         },
     }
     (generated_dir / "manifest.json").write_text(

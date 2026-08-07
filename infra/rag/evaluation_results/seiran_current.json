@@ -1,0 +1,1513 @@
+{
+  "schema_version": 2,
+  "evaluated_at": "2026-07-19T01:57:28.421127+00:00",
+  "routing_mode": "confidence",
+  "db_path": "/data/ACE/data/rag/local/local_rag.sqlite",
+  "top_k": 3,
+  "repeat": 1,
+  "coverage": "router_retrieval_citation_metadata_only",
+  "coverage_limitations": [
+    "Final hosted-LLM answer wording and browser/audio transport are not evaluated by this script.",
+    "Use a live controller smoke test after syncing generated artifacts."
+  ],
+  "summary": {
+    "must_rag_count": 32,
+    "must_not_rag_count": 7,
+    "must_rag_routing_success_rate": 1.0,
+    "must_rag_top_k_grounding_rate": 1.0,
+    "must_rag_domain_accuracy": 1.0,
+    "must_rag_temporal_accuracy": 1.0,
+    "must_rag_retrieval_success_rate": 1.0,
+    "mean_top_k_domain_precision": 1.0,
+    "must_not_rag_context_injections": 0,
+    "citation_id_duplicate_cases": 0,
+    "followup_count": 2,
+    "followup_context_injection_successes": 2,
+    "search_latency_ms": {
+      "min": 0.573,
+      "median": 15.239,
+      "p95": 30.857,
+      "max": 32.287
+    }
+  },
+  "cases": [
+    {
+      "id": "kagawa_fields",
+      "query": "香川先生の専門分野は何ですか",
+      "user_messages": [
+        "香川先生の専門分野は何ですか"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_domain": "kagawa_profile",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 8.714,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_birth_degree_fields",
+        "chunk_kagawa_yutaka_profile_basic",
+        "chunk_kagawa_yutaka_career_tut_roles"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        567.515,
+        471.573,
+        304.914
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "kagawa_career",
+      "query": "香川先生の経歴を教えてください",
+      "user_messages": [
+        "香川先生の経歴を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_domain": "kagawa_profile",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 10.635,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_career_tut_roles",
+        "chunk_kagawa_yutaka_career_tokyo_university",
+        "chunk_kagawa_yutaka_education"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        493.458,
+        493.426,
+        364.66
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "ebc",
+      "query": "EBCとは何ですか",
+      "user_messages": [
+        "EBCとは何ですか"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_domain": "kagawa_research",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 6.228,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_keywords",
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_nedo_cmc_reliability"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        411.371,
+        372.0,
+        372.0
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "hachioji_access",
+      "query": "八王子キャンパスへのアクセスは",
+      "user_messages": [
+        "八王子キャンパスへのアクセスは"
+      ],
+      "expectation": "must_rag",
+      "domain": "access",
+      "expected_domain": "access",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.925,
+      "reason": "accepted",
+      "search_ms": 8.796,
+      "top_chunk_ids": [
+        "chunk_access_hachioji_from_hachioji_station",
+        "chunk_access_hachioji_from_minamino_station"
+      ],
+      "top_page_numbers": [
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        765.038,
+        764.958
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "ao_admission",
+      "query": "総合型選抜について教えてください",
+      "user_messages": [
+        "総合型選抜について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 27.317,
+      "top_chunk_ids": [
+        "chunk_plain_64d15a9c51617664",
+        "chunk_plain_404d2b83aba297f3",
+        "chunk_plain_09ac845fc91f5878"
+      ],
+      "top_page_numbers": [
+        "3",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        784.178,
+        782.187,
+        687.176
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "next_open_campus",
+      "query": "次のオープンキャンパスはいつですか",
+      "user_messages": [
+        "次のオープンキャンパスはいつですか"
+      ],
+      "expectation": "must_rag",
+      "domain": "open_campus",
+      "expected_domain": "open_campus",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 8.42,
+      "top_chunk_ids": [
+        "chunk_oc_20260719_hachioji",
+        "chunk_oc_20260719_hachioji_summary_13",
+        "chunk_oc_20260719_hachioji_summary_07"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        640.19,
+        500.183,
+        500.181
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "hachioji_faculties",
+      "query": "八王子キャンパスにはどの学部がありますか",
+      "user_messages": [
+        "八王子キャンパスにはどの学部がありますか"
+      ],
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_domain": "faculties",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.9,
+      "reason": "accepted",
+      "search_ms": 21.978,
+      "top_chunk_ids": [
+        "chunk_school_hachioji_campus_overview"
+      ],
+      "top_page_numbers": [
+        ""
+      ],
+      "top_effective_years": [
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        712.909
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "university_overview",
+      "query": "東京工科大学の概要を教えてください",
+      "user_messages": [
+        "東京工科大学の概要を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "university",
+      "expected_domain": "university",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.925,
+      "reason": "accepted",
+      "search_ms": 14.874,
+      "top_chunk_ids": [
+        "chunk_school_university_features_practical_learning",
+        "chunk_school_university_student_support"
+      ],
+      "top_page_numbers": [
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        527.809,
+        522.797
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "pamphlet",
+      "query": "大学案内パンフレットはどこで見られますか",
+      "user_messages": [
+        "大学案内パンフレットはどこで見られますか"
+      ],
+      "expectation": "must_rag",
+      "domain": "pamphlet",
+      "expected_domain": "pamphlet",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 5.777,
+      "top_chunk_ids": [
+        "chunk_pamphlet_lab_guide",
+        "chunk_pamphlet_admission_navi_2027",
+        "chunk_pamphlet_university_guide_2027"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        703.832,
+        703.779,
+        702.143
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "kagawa_research_generic",
+      "query": "香川先生の研究について教えてください",
+      "user_messages": [
+        "香川先生の研究について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_domain": "kagawa_research",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 13.214,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_nedo_cmc_reliability",
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_kaken_keywords"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        446.951,
+        441.233,
+        440.339
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "kagawa_research_project",
+      "query": "香川先生の研究プロジェクトを教えてください",
+      "user_messages": [
+        "香川先生の研究プロジェクトを教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_domain": "kagawa_research",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 9.705,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_kaken_keywords",
+        "chunk_kagawa_yutaka_nedo_cmc_reliability"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        586.545,
+        512.332,
+        494.247
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "kagawa_affiliation",
+      "query": "香川先生の所属を教えてください",
+      "user_messages": [
+        "香川先生の所属を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_profile",
+      "expected_domain": "kagawa_profile",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 11.886,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_profile_basic",
+        "chunk_kagawa_yutaka_birth_degree_fields",
+        "chunk_kagawa_yutaka_president_appointment"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        528.381,
+        425.1,
+        370.646
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "tuition_short_term",
+      "query": "東京工科大学の学費について教えてください",
+      "user_messages": [
+        "東京工科大学の学費について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.85,
+      "reason": "accepted",
+      "search_ms": 30.436,
+      "top_chunk_ids": [
+        "chunk_plain_8975de5172d962ff__part_02",
+        "chunk_plain_8027c09f8365b7f7",
+        "chunk_plain_5dd2d08fd077f281"
+      ],
+      "top_page_numbers": [
+        "18",
+        "19",
+        ""
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        911.0,
+        881.0,
+        759.0
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "scholarship_without_admission_word",
+      "query": "奨学金について教えてください",
+      "user_messages": [
+        "奨学金について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.85,
+      "reason": "accepted",
+      "search_ms": 26.292,
+      "top_chunk_ids": [
+        "chunk_plain_fba40326fcf24e8f",
+        "chunk_plain_8027c09f8365b7f7__part_02",
+        "chunk_plain_5dd2d08fd077f281"
+      ],
+      "top_page_numbers": [
+        "",
+        "19",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "2027",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        805.063,
+        737.707,
+        685.344
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "qualified_ao_admission",
+      "query": "東京工科大学の総合型選抜について教えてください",
+      "user_messages": [
+        "東京工科大学の総合型選抜について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 28.459,
+      "top_chunk_ids": [
+        "chunk_plain_64d15a9c51617664",
+        "chunk_plain_404d2b83aba297f3",
+        "chunk_plain_09ac845fc91f5878"
+      ],
+      "top_page_numbers": [
+        "3",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        808.178,
+        806.187,
+        711.176
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "faculty_major",
+      "query": "コンピュータサイエンス学部の専攻を教えてください",
+      "user_messages": [
+        "コンピュータサイエンス学部の専攻を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_domain": "faculties",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 21.467,
+      "top_chunk_ids": [
+        "chunk_plain_6f456b4ec94dd869",
+        "chunk_plain_51622f38556ad5f0",
+        "chunk_plain_a313442ff2495769"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        634.081,
+        632.322,
+        622.177
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "cs_admissions_2027_detailed",
+      "query": "2027年度のコンピュータサイエンス学部の入試情報について詳しく教えてください",
+      "user_messages": [
+        "2027年度のコンピュータサイエンス学部の入試情報について詳しく教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 30.857,
+      "top_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_44bf47828f453d0d",
+        "chunk_plain_5b15188c2108b392"
+      ],
+      "top_page_numbers": [
+        "6",
+        "8",
+        "7"
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        1041.811,
+        1041.79,
+        1041.609
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "cs_admissions_asr_without_year",
+      "query": "コンピュータサイエンス学部の入試情報について詳しく教えてください",
+      "user_messages": [
+        "コンピューターセンス学部の入試情報について詳しく教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 29.61,
+      "top_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_44bf47828f453d0d",
+        "chunk_plain_5b15188c2108b392"
+      ],
+      "top_page_numbers": [
+        "6",
+        "8",
+        "7"
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        716.57,
+        716.553,
+        716.371
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "cs_admissions_fragmented_asr_year",
+      "query": "2027年度のコンピュータサイエンス学部の入試情報について詳しく教えてください",
+      "user_messages": [
+        "二千二十七年度の",
+        "コンピューターセンス学部の入試情報について詳しく教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 30.559,
+      "top_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_44bf47828f453d0d",
+        "chunk_plain_5b15188c2108b392"
+      ],
+      "top_page_numbers": [
+        "6",
+        "8",
+        "7"
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        1041.811,
+        1041.79,
+        1041.609
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "cs_admission_subjects",
+      "query": "コンピュータサイエンス学部の指定2教科は何ですか",
+      "user_messages": [
+        "コンピュータサイエンス学部の指定2教科は何ですか"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.85,
+      "reason": "accepted",
+      "search_ms": 25.545,
+      "top_chunk_ids": [
+        "chunk_plain_4175616af622693d__part_02",
+        "chunk_plain_349b5a50ffce687b__part_02",
+        "chunk_plain_02d5bc34108b4feb"
+      ],
+      "top_page_numbers": [
+        "7",
+        "9",
+        "8"
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        617.849,
+        617.809,
+        610.628
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "tuition_2027_pdf_page",
+      "query": "2027年度の学費について教えてください",
+      "user_messages": [
+        "2027年度の学費について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 0.85,
+      "reason": "accepted",
+      "search_ms": 32.287,
+      "top_chunk_ids": [
+        "chunk_plain_82327f513139cfb2",
+        "chunk_plain_8027c09f8365b7f7",
+        "chunk_plain_5dd2d08fd077f281"
+      ],
+      "top_page_numbers": [
+        "18",
+        "19",
+        ""
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        1222.284,
+        1176.0,
+        715.0
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "historical_admission_result_2026",
+      "query": "2026年度の入試結果を教えてください",
+      "user_messages": [
+        "2026年度の入試結果を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_domain": "admissions",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 27.094,
+      "top_chunk_ids": [
+        "chunk_plain_6ee72602e531015b",
+        "chunk_plain_02a675e5fbffaa2c",
+        "chunk_plain_d3b63c596c17d16c"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "2026",
+        "2026",
+        "2026"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        778.209,
+        736.598,
+        736.598
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "current_faculty_list",
+      "query": "東京工科大学の学部一覧を教えてください",
+      "user_messages": [
+        "東京工科大学の学部一覧を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_domain": "faculties",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 19.476,
+      "top_chunk_ids": [
+        "chunk_plain_0a44efa84095f4fa",
+        "chunk_plain_d1d0905af98bfcf1",
+        "chunk_plain_fc73b2438ece4474"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        562.358,
+        556.189,
+        523.528
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "planned_digital_entertainment_faculty",
+      "query": "デジタルエンターテインメント学部について教えてください",
+      "user_messages": [
+        "デジタルエンターテインメント学部について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_domain": "faculties",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 14.924,
+      "top_chunk_ids": [
+        "chunk_plain_2521eba17f7d0920",
+        "chunk_plain_d30c29ff2e1048cf",
+        "chunk_plain_af7526d3d82d5fe1"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "2028",
+        "2028",
+        "2028"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        843.83,
+        843.815,
+        831.9
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "graduate_program_list",
+      "query": "東京工科大学大学院の研究科と専攻を教えてください",
+      "user_messages": [
+        "東京工科大学大学院の研究科と専攻を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_domain": "faculties",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 21.113,
+      "top_chunk_ids": [
+        "chunk_plain_5095e26ed5128cdf",
+        "chunk_plain_de29a5595f875a8f",
+        "chunk_plain_f0854e9eded8ce3e"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        723.7,
+        713.476,
+        677.188
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "student_support",
+      "query": "東京工科大学の学生支援について教えてください",
+      "user_messages": [
+        "東京工科大学の学生支援について教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "university",
+      "expected_domain": "university",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 13.776,
+      "top_chunk_ids": [
+        "chunk_school_university_student_support",
+        "chunk_school_university_features_practical_learning"
+      ],
+      "top_page_numbers": [
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        655.397,
+        521.188
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "research_followup",
+      "query": "香川先生の研究内容について教えてください\nフォローアップ: もう少し詳しく教えてください",
+      "user_messages": [
+        "香川先生の研究内容について教えてください",
+        "もう少し詳しく教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "kagawa_research",
+      "expected_domain": "kagawa_research",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 10.129,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_kaken_projects",
+        "chunk_kagawa_yutaka_cmc_industrial_significance",
+        "chunk_kagawa_yutaka_kaken_keywords"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        431.233,
+        430.381,
+        430.339
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "seiran_overview_generic",
+      "query": "スパコンについて教えてください",
+      "user_messages": [
+        "スパコンについて教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_domain": "seiran",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 17.417,
+      "top_chunk_ids": [
+        "tut-seiran-001",
+        "tut-seiran-002",
+        "tut-seiran-004"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        749.543,
+        542.514,
+        511.673
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "seiran_gpu_count",
+      "query": "青嵐のGPUは何基ですか",
+      "user_messages": [
+        "青嵐のGPUは何基ですか"
+      ],
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_domain": "seiran",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 17.556,
+      "top_chunk_ids": [
+        "tut-seiran-006",
+        "tut-seiran-015",
+        "tut-seiran-001"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        897.08,
+        878.065,
+        699.928
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "seiran_top500_current",
+      "query": "青嵐の最新のTOP500順位は何位ですか",
+      "user_messages": [
+        "青嵐の最新のTOP500順位は何位ですか"
+      ],
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_domain": "seiran",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 19.37,
+      "top_chunk_ids": [
+        "tut-seiran-017",
+        "tut-seiran-014",
+        "tut-seiran-019"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "2026",
+        "",
+        "2026"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        1054.961,
+        821.682,
+        796.169
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "seiran_usage_unpublished",
+      "query": "青嵐の利用申請方法や料金を教えてください",
+      "user_messages": [
+        "青嵐の利用申請方法や料金を教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_domain": "seiran",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 19.05,
+      "top_chunk_ids": [
+        "tut-seiran-029",
+        "tut-seiran-001",
+        "tut-seiran-002"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "2026",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        848.612,
+        635.915,
+        542.514
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "seiran_qualified_overview",
+      "query": "東京工科大学のスーパーコンピュータについて教えてください",
+      "user_messages": [
+        "東京工科大学のスーパーコンピュータについて教えてください"
+      ],
+      "expectation": "must_rag",
+      "domain": "seiran",
+      "expected_domain": "seiran",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": true,
+      "confidence": 1.0,
+      "reason": "accepted",
+      "search_ms": 24.869,
+      "top_chunk_ids": [
+        "tut-seiran-001",
+        "tut-seiran-004",
+        "tut-seiran-002"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        827.543,
+        589.673,
+        566.514
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": true
+    },
+    {
+      "id": "greeting",
+      "query": "おはようございます",
+      "user_messages": [
+        "おはようございます"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": 0.0,
+      "reason": "greeting",
+      "search_ms": 0.573,
+      "top_chunk_ids": [],
+      "top_page_numbers": [],
+      "top_effective_years": [],
+      "temporal_correct": true,
+      "top_scores": [],
+      "top_k_domain_precision": 0.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "assistant_name",
+      "query": "あなたの名前は",
+      "user_messages": [
+        "あなたの名前は"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": 0.0,
+      "reason": "assistant_name",
+      "search_ms": 2.474,
+      "top_chunk_ids": [
+        "chunk_plain_cc86eff9b89728ec",
+        "chunk_plain_a77a230bfc4164f1",
+        "tut-seiran-003"
+      ],
+      "top_page_numbers": [
+        "20",
+        "21",
+        ""
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        42.906,
+        42.824,
+        35.0
+      ],
+      "top_k_domain_precision": 0.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "weather",
+      "query": "今日の天気は",
+      "user_messages": [
+        "今日の天気は"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": 0.0,
+      "reason": "weather",
+      "search_ms": 3.203,
+      "top_chunk_ids": [],
+      "top_page_numbers": [],
+      "top_effective_years": [],
+      "temporal_correct": true,
+      "top_scores": [],
+      "top_k_domain_precision": 0.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "weather_detail",
+      "query": "今日の天気を詳しく教えてください",
+      "user_messages": [
+        "今日の天気を詳しく教えてください"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": 0.0,
+      "reason": "weather",
+      "search_ms": 3.191,
+      "top_chunk_ids": [],
+      "top_page_numbers": [],
+      "top_effective_years": [],
+      "temporal_correct": true,
+      "top_scores": [],
+      "top_k_domain_precision": 0.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "dinner",
+      "query": "おすすめの夕食を教えてください",
+      "user_messages": [
+        "おすすめの夕食を教えてください"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": false,
+      "context_injected": false,
+      "confidence": 0.0,
+      "reason": "general_chitchat",
+      "search_ms": 2.022,
+      "top_chunk_ids": [],
+      "top_page_numbers": [],
+      "top_effective_years": [],
+      "temporal_correct": true,
+      "top_scores": [],
+      "top_k_domain_precision": 0.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "unknown_person",
+      "query": "山田太郎教授の経歴を教えてください",
+      "user_messages": [
+        "山田太郎教授の経歴を教えてください"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "kagawa_profile",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": false,
+      "confidence": 0.0,
+      "reason": "unknown_person:山田太郎",
+      "search_ms": 8.759,
+      "top_chunk_ids": [
+        "chunk_kagawa_yutaka_career_tut_roles",
+        "chunk_kagawa_yutaka_career_tokyo_university",
+        "chunk_kagawa_yutaka_education"
+      ],
+      "top_page_numbers": [
+        "",
+        "",
+        ""
+      ],
+      "top_effective_years": [
+        "",
+        "",
+        ""
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        489.809,
+        489.79,
+        361.0
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    },
+    {
+      "id": "unknown_admission_system",
+      "query": "未来創造特別選抜制度について教えてください",
+      "user_messages": [
+        "未来創造特別選抜制度について教えてください"
+      ],
+      "expectation": "must_not_rag",
+      "domain": "admissions",
+      "expected_domain": "",
+      "domain_correct": true,
+      "route_candidate": true,
+      "context_injected": false,
+      "confidence": 0.15,
+      "reason": "unmatched_admission_qualifier:未来創造特別",
+      "search_ms": 15.239,
+      "top_chunk_ids": [
+        "chunk_plain_819c69abc326ea49",
+        "chunk_plain_973dbe3e9b35e5b2",
+        "chunk_plain_4773233706efd0d0"
+      ],
+      "top_page_numbers": [
+        "1",
+        "2",
+        "1"
+      ],
+      "top_effective_years": [
+        "2027",
+        "2027",
+        "2027"
+      ],
+      "temporal_correct": true,
+      "top_scores": [
+        409.0,
+        409.0,
+        409.0
+      ],
+      "top_k_domain_precision": 1.0,
+      "citation_ids_unique": true,
+      "grounded_in_top_k": null
+    }
+  ]
+}

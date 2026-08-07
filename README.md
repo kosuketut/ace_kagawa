@@ -29,7 +29,7 @@ mkdir -p infra/tokkio/workspace/{controller,logs,state}
 
 ## LLM NIM
 
-Tokkio の LLM は NVIDIA NIM の hosted OpenAI-compatible endpoint を使い、既定では Stockmark の `stockmark/stockmark-2-100b-instruct` に接続します。API key は tracked file には置かず、`infra/tokkio/.env` の `TOKKIO_NVIDIA_API_KEY` または `TOKKIO_LLM_API_KEY` で渡します。
+Tokkio の LLM は NVIDIA NIM の hosted OpenAI-compatible endpoint を使い、既定では `nvidia/nemotron-3-ultra-550b-a55b` に接続します。API key は tracked file には置かず、`infra/tokkio/.env` の `TOKKIO_NVIDIA_API_KEY` または `TOKKIO_LLM_API_KEY` で渡します。
 
 疎通確認は次の形です。
 
@@ -37,7 +37,7 @@ Tokkio の LLM は NVIDIA NIM の hosted OpenAI-compatible endpoint を使い、
 export NVIDIA_API_KEY=<your-nvidia-nim-api-key>
 python3 infra/llm/check_llm_endpoint.py \
   --base-url https://integrate.api.nvidia.com/v1 \
-  --model stockmark/stockmark-2-100b-instruct
+  --model nvidia/nemotron-3-ultra-550b-a55b
 ```
 
 ローカル TensorRT-LLM で Osaka-Swallow を出す旧経路は、研究用の任意サブパスとして `infra/llm/README.md` に残しています。
@@ -74,7 +74,7 @@ cp infra/tokkio/.env.example infra/tokkio/.env
 python3 infra/tokkio/prepare_tokkio_workspace.py --env-file infra/tokkio/.env
 ```
 
-`infra/tokkio/.env` の LLM 既定値は `TOKKIO_LLM_BASE_URL=https://integrate.api.nvidia.com/v1`、`TOKKIO_LLM_MODEL=stockmark/stockmark-2-100b-instruct` です。`TOKKIO_LLM_API_KEY` が空の場合は `TOKKIO_NVIDIA_API_KEY` を Tokkio の `NVIDIA_LLM_API_KEY` として再利用します。
+`infra/tokkio/.env` の LLM 既定値は `TOKKIO_LLM_BASE_URL=https://integrate.api.nvidia.com/v1`、`TOKKIO_LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b` です。`TOKKIO_LLM_API_KEY` が空の場合は `TOKKIO_NVIDIA_API_KEY` を Tokkio の `NVIDIA_LLM_API_KEY` として再利用します。
 
 その後、NVIDIA 公式 quickstart に沿って `NVIDIA/ACE` を `infra/tokkio/workspace/NVIDIA-ACE` に取得し、`infra/tokkio/deploy_tokkio.sh` で `init-config` と `install` を実行します。
 

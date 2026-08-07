@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-context-chars",
         type=int,
-        default=1800,
+        default=2800,
         help="Maximum formatted context characters",
     )
     parser.add_argument("query", help="Search query")

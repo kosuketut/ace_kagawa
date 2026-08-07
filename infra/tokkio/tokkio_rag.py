@@ -23,8 +23,28 @@ from openai.types.chat import ChatCompletionMessageParam
 from pipecat.frames.frames import ErrorFrame, TextFrame, TTSSpeakFrame
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 
-from .local_rag import format_hits_for_prompt, search_index
-from .tokkio_llm import SpeechSegmentBuffer, TokkioNvidiaLLMService, get_fast_profile_reply
+from .local_rag import (
+    assess_local_rag_query,
+    citations_for_hits,
+    classify_query,
+    filter_hits_for_domain,
+    format_hits_for_prompt_with_sources,
+    grounded_direct_reply,
+    resolve_conversation_query,
+    search_index,
+    verify_index_bundle,
+)
+from .tokkio_llm import (
+    SpeechSegmentBuffer,
+    TokkioNvidiaLLMService,
+    get_fast_profile_reply,
+    get_scripted_speech_reply,
+)
+
+
+GROUNDED_ANSWER_UNAVAILABLE_REPLY = (
+    "現在、信頼できる参照情報を確認できないため、この質問には正確にお答えできません。"
+)
 
 
 class _ContextMessageOverride:
@@ -39,15 +59,18 @@ class _ContextMessageOverride:
         return getattr(self._original_context, name)
 
 
-async def _push_fast_profile_reply_if_available(service, chat_details: list[dict]) -> bool:
-    reply = get_fast_profile_reply(chat_details)
-    if not reply:
+async def _push_local_reply_if_available(service, chat_details: list[dict]) -> bool:
+    scripted_reply = get_scripted_speech_reply(chat_details)
+    profile_reply = get_fast_profile_reply(chat_details) if not scripted_reply else None
+    segments = scripted_reply or ((profile_reply,) if profile_reply else ())
+    if not segments:
         return False
 
-    logger.debug("RAG service selected local fast reply")
+    logger.debug(f"RAG service selected local reply with {len(segments)} speech segment(s)")
     await service.start_ttfb_metrics()
     await service.stop_ttfb_metrics()
-    await service.push_frame(TextFrame(reply))
+    for segment in segments:
+        await service.push_frame(TextFrame(segment))
     return True
 
 
@@ -158,7 +181,7 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
                     raise Exception(f"Unexpected role {msg['role']} found!")
                 chat_details.append({"role": msg["role"], "content": msg["content"]})
 
-            if await _push_fast_profile_reply_if_available(self, chat_details):
+            if await _push_local_reply_if_available(self, chat_details):
                 return
 
             if self.suffix_prompt:
@@ -265,11 +288,11 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         self,
         collection_name: str,
         route_keywords: list[str],
-        fallback_to_llm_on_error: bool = True,
+        fallback_to_llm_on_error: bool = False,
         provider: str = "local",
         local_db_path: str = "/code/configs/local_rag.sqlite",
         local_top_k: int = 3,
-        local_max_context_chars: int = 1800,
+        local_max_context_chars: int = 2800,
         rag_server_url: str = "http://localhost:8081/v1",
         stop_words: list | None = None,
         temperature: float = 0.2,
@@ -307,6 +330,20 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         self.local_max_context_chars = local_max_context_chars
         if self.provider not in {"nvidia", "local"}:
             raise ValueError(f"unsupported RAG provider: {provider}")
+        if self.provider == "local":
+            freshness = verify_index_bundle(Path(self.local_db_path))
+            logger.info(
+                "Local RAG startup verification passed: index_sha256={} corpus_fingerprint={} created_at={}",
+                freshness["index_sha256"],
+                freshness["corpus_fingerprint"],
+                freshness["created_at"],
+            )
+
+    async def _push_grounded_answer_unavailable(self, *, start_metrics: bool = True) -> None:
+        if start_metrics:
+            await self.start_ttfb_metrics()
+        await self.stop_ttfb_metrics()
+        await self.push_frame(TextFrame(GROUNDED_ANSWER_UNAVAILABLE_REPLY))
 
     def _select_reranker_top_k(self, chat_details: list[dict]) -> int:
         return TokkioNvidiaRAGService._select_reranker_top_k(self, chat_details)
@@ -315,13 +352,16 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         return TokkioNvidiaRAGService._parse_rag_chunk(self, raw_chunk)
 
     def _should_use_rag(self, chat_details: list[dict]) -> bool:
-        last_user_message = ""
-        for message in reversed(chat_details):
-            if message.get("role") == "user":
-                last_user_message = str(message.get("content") or "")
-                break
-        normalized = last_user_message.lower()
-        return any(keyword.lower() in normalized for keyword in self.route_keywords)
+        query = self._resolved_rag_query(chat_details)
+        decision = classify_query(query, self.route_keywords)
+        logger.debug(
+            "RAG route classification: domain={} candidate={} reason={} intents={}",
+            decision.domain,
+            decision.route_candidate,
+            decision.reason,
+            decision.intents,
+        )
+        return decision.route_candidate
 
     def _last_user_message(self, chat_details: list[dict]) -> str:
         for message in reversed(chat_details):
@@ -329,7 +369,20 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                 return str(message.get("content") or "")
         return ""
 
-    def _build_local_rag_context(self, context: OpenAILLMContext, prompt_context: str) -> _ContextMessageOverride:
+    def _resolved_rag_query(self, chat_details: list[dict]) -> str:
+        user_messages = [
+            str(message.get("content") or "")
+            for message in chat_details
+            if message.get("role") == "user"
+        ]
+        return resolve_conversation_query(user_messages, self.route_keywords)
+
+    def _build_local_rag_context(
+        self,
+        context: OpenAILLMContext,
+        prompt_context: str,
+        resolved_query: str,
+    ) -> _ContextMessageOverride:
         messages = []
         replaced = False
         original_messages = context.get_messages()
@@ -341,30 +394,78 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                 )
                 if not later_user_messages:
                     original_content = str(message.get("content") or "")
-                    copied["content"] = f"{prompt_context}\n\nユーザー質問:\n{original_content}"
+                    copied["content"] = (
+                        f"{prompt_context}\n\n"
+                        f"ユーザー質問(検索用に正規化):\n{resolved_query}\n\n"
+                        f"ユーザー発話:\n{original_content}"
+                    )
                     replaced = True
             messages.append(copied)
         return _ContextMessageOverride(context, messages)
 
     async def _stream_local_rag_response(self, context: OpenAILLMContext, chat_details: list[dict]) -> None:
-        query = self._last_user_message(chat_details)
+        query = self._resolved_rag_query(chat_details)
         if not query:
             raise Exception("No query is provided.")
 
-        hits = search_index(Path(self.local_db_path), query, top_k=self.local_top_k)
-        if not hits:
-            logger.warning("Local RAG returned no hits; falling back to direct LLM path")
-            await super()._process_context(context)
+        route = classify_query(query, self.route_keywords)
+        hits = search_index(
+            Path(self.local_db_path),
+            query,
+            top_k=self.local_top_k,
+            domain=route.domain,
+        )
+        assessment = assess_local_rag_query(query, hits, self.route_keywords)
+        if not assessment.accepted:
+            logger.info(
+                "Local RAG grounding rejected: domain={} confidence={} reason={}",
+                assessment.domain,
+                assessment.confidence,
+                assessment.reason,
+            )
+            await self._push_grounded_answer_unavailable()
             return
 
-        prompt_context = format_hits_for_prompt(hits, max_chars=self.local_max_context_chars)
+        domain_hits = filter_hits_for_domain(hits, assessment.domain)
+        prompt_context, included_hits = format_hits_for_prompt_with_sources(
+            domain_hits,
+            max_chars=self.local_max_context_chars,
+            query=query,
+        )
         if not prompt_context:
-            logger.warning("Local RAG context was empty; falling back to direct LLM path")
-            await super()._process_context(context)
+            logger.warning("Local RAG context was empty; returning grounded-answer unavailable reply")
+            await self._push_grounded_answer_unavailable()
             return
 
-        logger.debug(f"Local RAG selected {len(hits)} chunks")
-        await super()._process_context(self._build_local_rag_context(context, prompt_context))
+        citation_payloads = citations_for_hits(included_hits)
+        logger.info(
+            "Local RAG accepted: domain={} confidence={} citations={}",
+            assessment.domain,
+            assessment.confidence,
+            json.dumps(citation_payloads, ensure_ascii=False),
+        )
+        if self.enable_citations:
+            citations = [
+                NvidiaRAGCitation(
+                    document_type=str(payload["record_type"] or "local_sqlite"),
+                    document_id=str(payload["document_id"]),
+                    document_name=str(payload["source_title"]),
+                    content=hit.text.encode(),
+                    metadata=json.dumps(payload, ensure_ascii=False),
+                    score=float(payload["score"]),
+                )
+                for hit, payload in zip(included_hits, citation_payloads)
+            ]
+            await self.push_frame(NvidiaRAGCitationsFrame(citations=citations))
+        direct_reply = grounded_direct_reply(query, included_hits)
+        if direct_reply:
+            logger.info("Local RAG selected grounded direct reply for domain={}", assessment.domain)
+            await self.start_ttfb_metrics()
+            await self.stop_ttfb_metrics()
+            await self.push_frame(TextFrame(direct_reply))
+            return
+        logger.debug(f"Local RAG selected {len(included_hits)} context chunks from {len(hits)} search hits")
+        await super()._process_context(self._build_local_rag_context(context, prompt_context, query))
 
     async def _stream_rag_response(self, chat_details: list[dict]) -> None:
         if self.suffix_prompt:
@@ -456,6 +557,10 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
             if not monitor_task.done():
                 monitor_task.cancel()
 
+        if not full_response.strip():
+            logger.warning("RAG response was empty; returning grounded-answer unavailable reply")
+            await self._push_grounded_answer_unavailable(start_metrics=False)
+
         logger.debug(f"Full routed RAG response: {full_response}")
 
     async def _process_context(self, context: OpenAILLMContext):
@@ -467,7 +572,7 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                 raise Exception(f"Unexpected role {msg['role']} found!")
             chat_details.append({"role": msg["role"], "content": msg["content"]})
 
-        if await _push_fast_profile_reply_if_available(self, chat_details):
+        if await _push_local_reply_if_available(self, chat_details):
             return
 
         if not self._should_use_rag(chat_details):
@@ -483,9 +588,7 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                 await self._stream_rag_response(chat_details)
         except Exception as exc:
             logger.error(f"RAG router failed, Error: {exc!r}")
-            if not self.fallback_to_llm_on_error:
-                await self.push_error(ErrorFrame("Cannot connect to the RAG endpoint"))
-                await self.push_frame(TTSSpeakFrame("RAGサーバーへ接続できません。"))
-                return
-            logger.warning("RAG router falling back to direct LLM path")
-            await super()._process_context(context)
+            if self.fallback_to_llm_on_error:
+                logger.warning("Direct LLM fallback is disabled for grounded queries")
+            await self.push_error(ErrorFrame("Cannot obtain grounded RAG context"))
+            await self.push_frame(TTSSpeakFrame(GROUNDED_ANSWER_UNAVAILABLE_REPLY))

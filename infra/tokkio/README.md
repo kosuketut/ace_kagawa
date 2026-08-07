@@ -44,13 +44,17 @@ python3 prepare_tokkio_workspace.py --env-file .env
 
 `TOKKIO_OPENAI_API_KEY` を空欄にした場合、生成される `my-config.env` には placeholder 値が入ります。Tokkio 5.0 chart の default `llm_processor` は `NvidiaLLMService` なので、NVIDIA LLM 経路を使う限りこの placeholder は実行時に参照されません。`OpenAILLMService` を使う場合は実際の OpenAI key に差し替えてください。
 
-Tokkio の LLM は既定で hosted NVIDIA NIM の OpenAI-compatible endpoint を使います。`.env` の `TOKKIO_LLM_BASE_URL` は `https://integrate.api.nvidia.com/v1`、`TOKKIO_LLM_MODEL` は `stockmark/stockmark-2-100b-instruct` です。`TOKKIO_LLM_API_KEY` を空にすると、`TOKKIO_NVIDIA_API_KEY` が Tokkio controller の `NVIDIA_LLM_API_KEY` として使われます。
+Tokkio の LLM は既定で hosted NVIDIA NIM の OpenAI-compatible endpoint を使います。`.env` の `TOKKIO_LLM_BASE_URL` は `https://integrate.api.nvidia.com/v1`、`TOKKIO_LLM_MODEL` は `nvidia/nemotron-3-ultra-550b-a55b` です。`TOKKIO_LLM_API_KEY` を空にすると、`TOKKIO_NVIDIA_API_KEY` が Tokkio controller の `NVIDIA_LLM_API_KEY` として使われます。
+
+音声対話では長い内部推論を待たないよう、Nemotron 3 Ultra に `enable_thinking=false`、`temperature=0` を指定します。複雑な推論を優先する別用途では、用途ごとのクライアントから reasoning を明示的に有効化してください。
+
+Hosted model の採用前には、`https://build.nvidia.com/<provider>/<model>` に終了予定の表示がないことを確認してください。`/v1/models` は現時点の提供有無だけを示し、将来の終了予定までは返しません。現在の既定モデルは 2026-07-17 時点で Free Endpoint が利用可能です。以前の `stockmark/stockmark-2-100b-instruct` は hosted Free Endpoint が Deprecated のため、既定値には戻しません。
 
 Hosted NIM を使う場合、`manage_tokkio.sh start|stop|restart` で別途 LLM コンテナを起動・停止する必要はありません。
 
 ```bash
 TOKKIO_LLM_BASE_URL=https://integrate.api.nvidia.com/v1
-TOKKIO_LLM_MODEL=stockmark/stockmark-2-100b-instruct
+TOKKIO_LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 TOKKIO_LLM_API_KEY=
 ```
 
@@ -62,19 +66,21 @@ TOKKIO_RAG_MODE=auto
 TOKKIO_RAG_PROVIDER=local
 TOKKIO_RAG_SERVER_URL=http://10.209.1.12:8081/v1
 TOKKIO_RAG_COLLECTION_NAME=ace_kagawa
-TOKKIO_RAG_MAX_TOKENS=128
+TOKKIO_RAG_MAX_TOKENS=64
 TOKKIO_RAG_VDB_TOP_K=12
 TOKKIO_RAG_RERANKER_TOP_K=5
 TOKKIO_RAG_MULTIMODAL_RERANKER_TOP_K=10
 TOKKIO_RAG_ENABLE_RERANKER=true
 TOKKIO_RAG_ROUTE_KEYWORDS=論文,文献,出典,根拠,資料,ドキュメント,引用,詳細,詳しく,経歴,業績,研究業績,研究内容,プロジェクト,発表,受賞,特許,EBC,CMC,SiC/SiC,非破壊評価
-TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR=true
+TOKKIO_RAG_FALLBACK_TO_LLM_ON_ERROR=false
 TOKKIO_RAG_HEALTH_URL=http://127.0.0.1:8081/v1/health?check_dependencies=true
 TOKKIO_LOCAL_RAG_DB=data/rag/local/local_rag.sqlite
 TOKKIO_LOCAL_RAG_RUNTIME_DB_PATH=/code/configs/local_rag.sqlite
 TOKKIO_LOCAL_RAG_TOP_K=3
-TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS=1800
+TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS=2800
 ```
+
+RAG対象の知識質問で検索結果が得られない場合やRAG処理が失敗した場合は、直接LLMへフォールバックせず、参照情報を確認できない旨を応答します。
 
 local RAG index の作成は repo root から次を使います。
 
@@ -97,7 +103,7 @@ LLM endpoint の疎通確認は repo root から次を使います。
 export NVIDIA_API_KEY=<your-nvidia-nim-api-key>
 python3 infra/llm/check_llm_endpoint.py \
   --base-url https://integrate.api.nvidia.com/v1 \
-  --model stockmark/stockmark-2-100b-instruct
+  --model nvidia/nemotron-3-ultra-550b-a55b
 ```
 
 次に NVIDIA 公式 repo を用意します。
@@ -174,9 +180,15 @@ python3 check_tokkio_endpoints.py \
 python3 infra/tokkio/customize_tokkio_japanese.py \
   --ace-repo-dir /home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/NVIDIA-ACE \
   --llm-base-url https://integrate.api.nvidia.com/v1 \
-  --llm-model stockmark/stockmark-2-100b-instruct
+  --llm-model nvidia/nemotron-3-ultra-550b-a55b
 ```
 
 通常は個別実行は不要で、`./manage_tokkio.sh start --env-file .env` または `./manage_tokkio.sh reapply --env-file .env` の前に `prepare_tokkio_workspace.py` が自動で同じパッチを当てます。
+
+### オープンキャンパス挨拶
+
+マイクまたはテキスト入力から「オープンキャンパスのご挨拶をお願いします」「オープニングをお願いします」「台本を読んでください」のいずれかを伝えると、AI学長が八王子キャンパス向けの挨拶を文章単位で読み上げます。この定型発話は LLM や RAG を呼ばないため、原稿が言い換えられることはありません。
+
+冒頭の「皆さん、こんにちは。」だけは、`/data/ACE/irodori/fixed-phrases/open_campus_greeting_16k_mono.pcm` が存在する場合に事前生成済み音声を返します。ファイルがない場合は通常のIrodori生成へフォールバックします。
 
 詳細な手順と前提は [`docs/operations/tokkio-japanese-customization.md`](/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-japanese-customization.md) を参照してください。
