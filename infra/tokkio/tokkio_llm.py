@@ -315,6 +315,10 @@ def normalize_speech_segment(text: str) -> str:
     return normalized.strip(" 。") + ("。" if normalized.strip(" 。") and normalized.rstrip().endswith("。") else "")
 
 
+def _is_ascii_alnum(value: str) -> bool:
+    return value.isascii() and value.isalnum()
+
+
 class SpeechSegmentBuffer:
     """Buffers LLM deltas into short, stable TTS phrases."""
 
@@ -367,15 +371,35 @@ class SpeechSegmentBuffer:
         return segments
 
     def _first_sentence_end_index(self) -> int | None:
-        indexes = [self._buffer.find(char) for char in _SENTENCE_END_CHARS]
-        indexes = [index for index in indexes if index >= 0]
-        return min(indexes) if indexes else None
+        for index, char in enumerate(self._buffer):
+            if char in _SENTENCE_END_CHARS and not self._is_inside_token(index):
+                return index
+        return None
 
     def _last_soft_break_index(self, max_chars: int) -> int | None:
         search_text = self._buffer[:max_chars]
-        indexes = [search_text.rfind(char) for char in _SOFT_BREAK_CHARS]
-        indexes = [index for index in indexes if index + 1 >= self._min_segment_chars]
+        indexes = [
+            index
+            for index, char in enumerate(search_text)
+            if char in _SOFT_BREAK_CHARS
+            and index + 1 >= self._min_segment_chars
+            and not self._is_inside_token(index)
+        ]
         return max(indexes) if indexes else None
+
+    def _is_inside_token(self, index: int) -> bool:
+        """Keep "1.5", "250,000" and "v4.1" in one segment.
+
+        A "." after an ASCII letter/digit, or a "," after a digit, is only a
+        boundary once the next delta shows it is not followed by the same kind
+        of character; splitting "1." / "5倍" makes TTS read "いち。ごばい".
+        """
+        char = self._buffer[index]
+        if index == 0 or char not in ".,，":
+            return False
+        joins = _is_ascii_alnum if char == "." else str.isdigit
+        following = self._buffer[index + 1 : index + 2]
+        return joins(self._buffer[index - 1]) and (not following or joins(following))
 
     def _take(self, end_index: int) -> str:
         raw_segment = self._buffer[:end_index].strip()

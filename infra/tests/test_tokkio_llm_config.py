@@ -638,6 +638,31 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(buffer.feed("材料強度学について、次に"), ["特に、材料強度学について、"])
         self.assertEqual(buffer.flush(), ["次に"])
 
+    def test_speech_segment_buffer_keeps_decimals_and_thousands_separators_together(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        text = (
+            "倍率は約1.5倍で、IELTSは6.5以上です。"
+            "入学金は250,000円、授業料は年間703,000円、施設設備費は1,234,000円です。"
+        )
+        buffer = tokkio_llm.SpeechSegmentBuffer()
+
+        segments: list[str] = []
+        for char in text:  # worst case: the LLM streams one character per delta
+            segments.extend(buffer.feed(char))
+        segments.extend(buffer.flush())
+
+        self.assertEqual("".join(segments), text)
+        for segment in segments:
+            self.assertNotRegex(segment, r"^[\d.,]|[\d][.,]$")
+
+    def test_speech_segment_buffer_still_splits_on_ascii_period_between_sentences(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer()
+
+        self.assertEqual(buffer.feed("It is 2026."), [])
+        self.assertEqual(buffer.feed(" Next"), ["It is 2026."])
+        self.assertEqual(buffer.flush(), ["Next"])
+
     def test_speech_segment_buffer_does_not_emit_punctuation_only_segments(self) -> None:
         tokkio_llm = load_tokkio_llm_with_stubs()
         buffer = tokkio_llm.SpeechSegmentBuffer(
