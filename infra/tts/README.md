@@ -54,3 +54,29 @@ v4 系のコードは `transformers>=5.12.1` を要求します。`uv sync` は 
 `M/D` 形式は日付として読むため、`1/3` のような分数は「いちがつみっか」になります。分数は `3分の1` と書かれていれば「さんぶんのいち」と読みます。
 
 Tokkio 側（`infra/tokkio/tokkio_llm.py` の `SpeechSegmentBuffer`）は LLM のストリームを文単位で TTS に送ります。`1.5` や `250,000` の途中で切ると読みが壊れるため、数字の間の `.` と `,` は区切りとして扱いません。
+
+## ElevenLabs に切り替える
+
+`elevenlabs_server.py` は同じ `/v1/audio/speech` 契約で ElevenLabs を呼ぶ中継サービス（port 8022）です。Tokkio 側のコードは変えず、`infra/tokkio/.env` の向き先だけを切り替えます。
+
+- Eleven v4 / v4 Turbo は、pipecat の `ElevenLabsTTSService` が使う TTS WebSocket（`stream-input` / `multi-stream-input`）に非対応で、HTTP 400 `unsupported_model` になります（2026-09-29 確認）。そのため中継サービスは HTTP ストリーミング（`/v1/text-to-speech/{voice_id}/stream`）を使います。
+- v4 系では ElevenLabs の日本語正規化オプション（`apply_language_text_normalization`）が使えません。生の数字は誤読することがあるため（`703,000円` → 73万円）、中継サービスでも `normalize_speech_input()` を通します。
+- 既定モデルは `eleven_v4_turbo`。実測で最初の音声まで 0.2〜0.4 秒、`eleven_v4` は 0.8〜1.5 秒でした。
+
+```bash
+# 1. infra/tokkio/.env に voice id を設定（API キーは TOKKIO_ELEVENLABS_API_KEY を共用）
+TOKKIO_ELEVENLABS_VOICE_ID=<ElevenLabs の voice id>
+
+# 2. 中継サービスを登録して起動
+sudo install -m 0644 infra/tts/ace-elevenlabs-tts.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start ace-elevenlabs-tts
+curl -s http://127.0.0.1:8022/healthz   # voice id か API キーが未設定なら 503
+
+# 3. infra/tokkio/.env で Tokkio の TTS 向き先を中継サービスに変更し、reapply
+TOKKIO_IRODORI_TTS_BASE_URL=http://<TOKKIO_APP_HOST_IPV4_ADDR>:8022
+TOKKIO_IRODORI_TTS_HEALTH_URL=http://127.0.0.1:8022/healthz
+TOKKIO_IRODORI_TTS_SERVICE=ace-elevenlabs-tts.service
+```
+
+Irodori に戻すときは 3 の 3 行を元の値（port 8021、`ace-irodori-tts.service`）に戻して reapply します。
