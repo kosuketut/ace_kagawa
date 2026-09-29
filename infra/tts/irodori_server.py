@@ -24,13 +24,16 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_ROOT = Path("/data/ACE/irodori")
-DEFAULT_HF_CHECKPOINT = "Aratako/Irodori-TTS-500M-v3"
+DEFAULT_HF_CHECKPOINT = "Aratako/Irodori-TTS-v4.1-Small"
 DEFAULT_REFERENCE_SOURCE = ROOT / "Irodori-TTS" / "data" / "kagawa_voice.m4a"
 DEFAULT_REFERENCE_WAV = DEFAULT_DATA_ROOT / "reference" / "kagawa_voice_ref_48k_mono.wav"
 DEFAULT_FIXED_OPEN_CAMPUS_GREETING_PCM = (
     DEFAULT_DATA_ROOT / "fixed-phrases" / "open_campus_greeting_16k_mono.pcm"
 )
 DEFAULT_VOICE = "kagawa"
+# Irodori's SamplingRequest.max_seconds default.
+MAX_SYNTHESIS_SECONDS = 30.0
+MIN_CAPPED_SECONDS = 1.2
 FIXED_OPEN_CAMPUS_GREETING_TEXT = "皆さん、こんにちは"
 PRONUNCIATION_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"香川\s*豊"), "香川ゆたか"),
@@ -56,7 +59,11 @@ _FULL_WIDTH_NUMBER_TRANSLATION = str.maketrans("０１２３４５６７８９�
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _SPEECH_HEADING_RE = re.compile(r"(^|\s+)\*\*([^*\n]{1,40})\*\*(?=\s*(?:[*+]|$))")
 _PHONE_NUMBER_RE = re.compile(r"(?<!\d)(0\d{1,4})[-‐‑–—](\d{1,4})[-‐‑–—](\d{3,4})(?!\d)")
+_SLASH_FULL_DATE_RE = re.compile(r"(?<![\d/.])(\d{4})/(\d{1,2})/(\d{1,2})(?![\d/])")
+_SLASH_MONTH_DAY_RE = re.compile(r"(?<![A-Za-z\d/.:])(\d{1,2})/(\d{1,2})(?![\d/])")
 _FULL_DATE_RE = re.compile(r"(?<![A-Za-z0-9])(\d{4})年(\d{1,2})月(\d{1,2})日")
+_MONTH_DAY_RE = re.compile(r"(?<![A-Za-z0-9])(\d{1,2})月(\d{1,2})日")
+_DAY_SPAN_RE = re.compile(r"(?<![A-Za-z0-9])(\d{1,3})日(間|目)")
 _TIME_RANGE_RE = re.compile(r"(?<!\d)(\d{1,2}):(\d{2})\s*[~〜～−-]\s*(\d{1,2}):(\d{2})(?!\d)")
 _OPEN_TIME_RE = re.compile(r"(?<!\d)(\d{1,2}):(\d{2})\s*[~〜～](?!\d)")
 _CLOCK_TIME_RE = re.compile(r"(?<!\d)(\d{1,2}):(\d{2})(?!\d)")
@@ -64,21 +71,35 @@ _WEEKDAY_PAREN_RE = re.compile(r"[(（]([月火水木金土日])[)）]")
 _ACADEMIC_YEAR_RE = re.compile(r"(?<![A-Za-z0-9])(\d{4})年度")
 _YEAR_ORDINAL_RE = re.compile(r"(?<![A-Za-z0-9])(\d+)年目")
 _YEAR_DURATION_RE = re.compile(r"(?<![A-Za-z0-9])(\d+)年間")
-_CALENDAR_YEAR_RE = re.compile(r"(?<![A-Za-z0-9])(\d{4})年")
+_YEAR_RE = re.compile(r"(?<![A-Za-z0-9,.])(\d{1,4})年")
 _MONTH_RE = re.compile(r"(?<![A-Za-z0-9])(\d{1,2})月")
 _DAY_RE = re.compile(r"(?<![A-Za-z0-9])(\d{1,2})日")
+_YEN_SIGN_RE = re.compile(r"[¥￥]\s*(\d[\d,]*)(?![\d.])")
 _YEN_RE = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*)\s*円")
 _PERCENT_RE = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)\s*(?:%|パーセント)")
 _TECH_UNIT_RE = re.compile(
     r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)\s*"
-    r"(EFLOPS|PFLOPS|TFLOPS|GFLOPS|TB|GB|GHz|MHz|Gbps|Mbps|cores?)(?![A-Za-z0-9])",
+    r"(EFLOPS|PFLOPS|TFLOPS|GFLOPS|TB|GB|MB|KB|GHz|MHz|Gbps|Mbps|cores?)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+# Case-sensitive so that e.g. "5G" or "3D" are not mistaken for grams or other units.
+_METRIC_UNIT_RE = re.compile(
+    r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)\s*"
+    r"(km²|km2|m²|m2|㎡|km|cm|mm|kg|mg|mL|ml|m|g|L|ha|℃|°C)(?![A-Za-z0-9])"
+)
 _DOTTED_VERSION_RE = re.compile(r"(?<![A-Za-z0-9])(\d+(?:\.\d+){2,})(?![A-Za-z0-9])")
-_DECIMAL_RE = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*)\.(\d+)(?![A-Za-z0-9])")
-_COUNTER_RE = re.compile(
-    r"(?<![A-Za-z0-9])(\d[\d,]*)\s*"
-    r"(科目|教科|歳|才|位|基|台|枚|個|本|冊|組|倍|匹|名|人|件|校|回|階|分|秒|時)"
+_DECIMAL_RE = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*\.\d+)(?![A-Za-z0-9])")
+_FRACTION_RE = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*)分の(\d[\d,]*)(?![\d.])")
+_LARGE_KANJI_UNIT_RE = re.compile(r"(?<![A-Za-z0-9.])(\d[\d,]*)(?=[万億兆])")
+_COUNTERS = (
+    r"科目|教科|時間|週間|周年|[かヶケカヵ箇](?:月|所)|歳|才|位|基|期|級|台|枚|個|本|冊|組|倍|匹|"
+    r"名|人|件|校|回|階|点|泊|杯|週|分(?![野析類担散布割岐解])|秒|時|つ"
+)
+_COUNTER_RE = re.compile(rf"(?<![A-Za-z0-9])(\d[\d,]*)\s*({_COUNTERS})")
+# "2〜3人" -> "2人から3人" so that each side gets its own counter reading.
+_NUMBER_RANGE_RE = re.compile(
+    rf"(?<![A-Za-z0-9.,:/])(\d[\d,]*)\s*[〜~～]\s*(\d[\d,]*)"
+    rf"(?=\s*({_COUNTERS}|年|月|日|円|割|%|パーセント|万|億))"
 )
 _STANDALONE_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*)(?![A-Za-z0-9])")
 _DIGIT_READINGS = ("ぜろ", "いち", "に", "さん", "よん", "ご", "ろく", "なな", "はち", "きゅう")
@@ -90,12 +111,84 @@ _TECH_UNIT_READINGS = {
     "gflops": "ギガフロップス",
     "tb": "テラバイト",
     "gb": "ギガバイト",
+    "mb": "メガバイト",
+    "kb": "キロバイト",
     "ghz": "ギガヘルツ",
     "mhz": "メガヘルツ",
     "gbps": "ギガビット毎秒",
     "mbps": "メガビット毎秒",
     "core": "コア",
     "cores": "コア",
+}
+_METRIC_UNIT_READINGS = {
+    "km²": "へいほうキロメートル",
+    "km2": "へいほうキロメートル",
+    "m²": "へいほうメートル",
+    "m2": "へいほうメートル",
+    "㎡": "へいほうメートル",
+    "km": "キロメートル",
+    "cm": "センチメートル",
+    "mm": "ミリメートル",
+    "kg": "キログラム",
+    "mg": "ミリグラム",
+    "mL": "ミリリットル",
+    "ml": "ミリリットル",
+    "m": "メートル",
+    "g": "グラム",
+    "L": "リットル",
+    "ha": "ヘクタール",
+    "℃": "ど",
+    "°C": "ど",
+}
+# Final digits whose reading becomes a geminate (いっ/ろっ/はっ/じゅっ) before the counter.
+_K_ROW_SOKUON_DIGITS = frozenset({0, 1, 6, 8})
+_S_ROW_SOKUON_DIGITS = frozenset({0, 1, 8})
+_P_ROW_DIGITS = frozenset({0, 1, 3, 4, 6, 8})
+_SOKUON_COUNTERS: dict[str, tuple[str, frozenset[int]]] = {
+    "回": ("かい", _K_ROW_SOKUON_DIGITS),
+    "個": ("こ", _K_ROW_SOKUON_DIGITS),
+    "件": ("けん", _K_ROW_SOKUON_DIGITS),
+    "校": ("こう", _K_ROW_SOKUON_DIGITS),
+    "基": ("き", _K_ROW_SOKUON_DIGITS),
+    "期": ("き", _K_ROW_SOKUON_DIGITS),
+    "級": ("きゅう", _K_ROW_SOKUON_DIGITS),
+    "か月": ("かげつ", _K_ROW_SOKUON_DIGITS),
+    "か所": ("かしょ", _K_ROW_SOKUON_DIGITS),
+    "歳": ("さい", _S_ROW_SOKUON_DIGITS),
+    "才": ("さい", _S_ROW_SOKUON_DIGITS),
+    "冊": ("さつ", _S_ROW_SOKUON_DIGITS),
+    "週": ("しゅう", _S_ROW_SOKUON_DIGITS),
+    "週間": ("しゅうかん", _S_ROW_SOKUON_DIGITS),
+    "周年": ("しゅうねん", _S_ROW_SOKUON_DIGITS),
+    "点": ("てん", _S_ROW_SOKUON_DIGITS),
+}
+# counter: (plain, geminated p-sound, b-sound after 3)
+_H_ROW_COUNTERS = {
+    "本": ("ほん", "ぽん", "ぼん"),
+    "匹": ("ひき", "ぴき", "びき"),
+    "杯": ("はい", "ぱい", "ばい"),
+}
+_PLAIN_COUNTER_SUFFIXES = {
+    "位": "い",
+    "台": "だい",
+    "枚": "まい",
+    "倍": "ばい",
+    "名": "めい",
+    "科目": "かもく",
+    "教科": "きょうか",
+    "秒": "びょう",
+}
+_TSU_READINGS = {
+    1: "ひとつ",
+    2: "ふたつ",
+    3: "みっつ",
+    4: "よっつ",
+    5: "いつつ",
+    6: "むっつ",
+    7: "ななつ",
+    8: "やっつ",
+    9: "ここのつ",
+    10: "とお",
 }
 
 
@@ -137,7 +230,8 @@ def _read_under_ten_thousand(value: int) -> str:
     return "".join(parts)
 
 
-def _read_japanese_integer(raw_value: str) -> str:
+def _read_japanese_integer(raw_value: str, *, before_large_unit: bool = False) -> str:
+    """Read an integer; ``before_large_unit`` marks a number followed by 万/億/兆."""
     digits = raw_value.replace(",", "")
     if not digits or not digits.isdigit():
         return raw_value
@@ -160,7 +254,11 @@ def _read_japanese_integer(raw_value: str) -> str:
         group = groups[group_index]
         if not group:
             continue
-        parts.append(_read_under_ten_thousand(group))
+        reading = _read_under_ten_thousand(group)
+        # 1000万 is "いっせんまん", while a bare 1000 stays "せん".
+        if (group_index > 0 or before_large_unit) and reading.startswith("せん"):
+            reading = "いっ" + reading
+        parts.append(reading)
         parts.append(_LARGE_NUMBER_UNITS[group_index])
     return "".join(parts)
 
@@ -170,19 +268,23 @@ def _read_year_value(raw_value: str) -> str:
     return reading[:-2] + "よ" if reading.endswith("よん") else reading
 
 
+def _read_digits(raw_value: str) -> str:
+    return "".join(_DIGIT_READINGS[int(digit)] for digit in raw_value)
+
+
 def _read_decimal_value(raw_value: str) -> str:
     integer, separator, fraction = raw_value.replace(",", "").partition(".")
-    reading = _read_japanese_integer(integer)
     if not separator:
-        return reading
-    return f"{reading}てん{''.join(_DIGIT_READINGS[int(digit)] for digit in fraction)}"
+        return _read_japanese_integer(integer)
+    reading = "れい" if integer == "0" else _read_japanese_integer(integer)
+    return f"{reading}てん{_read_digits(fraction)}"
 
 
 def _read_dotted_version(raw_value: str) -> str:
     head, *tail = raw_value.split(".")
     parts = [_read_japanese_integer(head)]
     for component in tail:
-        parts.extend(("てん", "".join(_DIGIT_READINGS[int(digit)] for digit in component)))
+        parts.extend(("てん", _read_digits(component)))
     return "".join(parts)
 
 
@@ -192,10 +294,11 @@ def _read_month_value(raw_value: str) -> str:
     return special.get(value, f"{_read_japanese_integer(raw_value)}がつ")
 
 
-def _read_day_value(raw_value: str) -> str:
+def _read_day_value(raw_value: str, *, calendar: bool = True) -> str:
+    """Read N日; only 1日 differs between a date (ついたち) and a span (いちにち)."""
     value = int(raw_value)
     special = {
-        1: "ついたち",
+        1: "ついたち" if calendar else "いちにち",
         2: "ふつか",
         3: "みっか",
         4: "よっか",
@@ -212,17 +315,19 @@ def _read_day_value(raw_value: str) -> str:
     return special.get(value, f"{_read_japanese_integer(raw_value)}にち")
 
 
-def _read_p_counter(raw_value: str, suffix: str) -> str:
+def _read_p_counter(raw_value: str, suffix: str, *, geminate_hundreds: bool = True) -> str:
+    """Geminate the final digit (いっ/ろっ/はっ/じゅっ) before a counter.
+
+    百 only geminates before k/h-row counters (ひゃっこ, ひゃっぽん), not before
+    s/t-row ones (ひゃくさい, ろっぴゃくてん), so callers opt out for those.
+    """
     value = int(raw_value.replace(",", ""))
     reading = _read_japanese_integer(raw_value)
     final_digit = value % 10
     if final_digit == 0:
-        terminal_replacements = {
-            "じゅう": "じゅっ",
-            "ひゃく": "ひゃっ",
-            "びゃく": "びゃっ",
-            "ぴゃく": "ぴゃっ",
-        }
+        terminal_replacements = {"じゅう": "じゅっ"}
+        if geminate_hundreds:
+            terminal_replacements.update({"ひゃく": "ひゃっ", "びゃく": "びゃっ", "ぴゃく": "ぴゃっ"})
         for ending, replacement in terminal_replacements.items():
             if reading.endswith(ending):
                 reading = reading[: -len(ending)] + replacement
@@ -236,73 +341,88 @@ def _read_p_counter(raw_value: str, suffix: str) -> str:
     return f"{reading}{suffix}"
 
 
+def _read_hour(raw_value: str, *, seven: str = "しち") -> str:
+    """Read N時: 4/7/9 in the ones place become よ/しち/く (14時 -> じゅうよじ)."""
+    value = int(raw_value.replace(",", ""))
+    if value == 0:
+        return "れいじ"
+    reading = _read_japanese_integer(raw_value)
+    final_digit = value % 10
+    if final_digit == 4 and reading.endswith("よん"):
+        return f"{reading[:-2]}よじ"
+    if final_digit == 7 and reading.endswith("なな"):
+        return f"{reading[:-2]}{seven}じ"
+    if final_digit == 9 and reading.endswith("きゅう"):
+        return f"{reading[:-3]}くじ"
+    return f"{reading}じ"
+
+
 def _read_counter(raw_value: str, counter: str) -> str:
     value = int(raw_value.replace(",", ""))
     reading = _read_japanese_integer(raw_value)
+    final_digit = value % 10
+    if counter[0] in "かヶケカヵ箇" and counter[1:] in {"月", "所"}:
+        counter = "か" + counter[1:]
+
+    if counter == "時":
+        return _read_hour(raw_value)
+    if counter == "時間":
+        return f"{_read_hour(raw_value, seven='なな')}かん"
     if counter == "人":
-        if value == 1:
-            return "ひとり"
-        if value == 2:
-            return "ふたり"
+        if value in {1, 2}:
+            return {1: "ひとり", 2: "ふたり"}[value]
+        if final_digit == 4 and reading.endswith("よん"):
+            return f"{reading[:-2]}よにん"
         return f"{reading}にん"
-    if counter in {"歳", "才"}:
-        return _read_p_counter(raw_value, "さい") if value % 10 in {0, 1, 8} else f"{reading}さい"
-    if counter == "位":
-        return f"{reading}い"
-    if counter == "基":
-        return _read_p_counter(raw_value, "き") if value % 10 in {0, 1, 6, 8} else f"{reading}き"
-    if counter == "本":
-        if value % 10 == 3 and reading.endswith("さん"):
-            return f"{reading[:-2]}さんぼん"
-        return _read_p_counter(raw_value, "ぽん") if value % 10 in {0, 1, 6, 8} else f"{reading}ほん"
-    if counter == "冊":
-        return _read_p_counter(raw_value, "さつ") if value % 10 in {0, 1, 8} else f"{reading}さつ"
-    if counter == "個":
-        return _read_p_counter(raw_value, "こ") if value % 10 in {0, 1, 6, 8} else f"{reading}こ"
-    if counter == "匹":
-        if value % 10 == 3 and reading.endswith("さん"):
-            return f"{reading[:-2]}さんびき"
-        return _read_p_counter(raw_value, "ぴき") if value % 10 in {0, 1, 6, 8} else f"{reading}ひき"
+    if counter == "つ":
+        return _TSU_READINGS.get(value, f"{reading}つ")
+    if counter in {"歳", "才"} and value == 20:
+        return "はたち"
+    if counter == "組" and value in {1, 2}:
+        return {1: "ひとくみ", 2: "ふたくみ"}[value]
     if counter == "組":
-        if value == 1:
-            return "ひとくみ"
-        if value == 2:
-            return "ふたくみ"
         return f"{reading}くみ"
-    if counter in {"台", "枚", "倍"}:
-        suffix = {"台": "だい", "枚": "まい", "倍": "ばい"}[counter]
-        return f"{reading}{suffix}"
-    if counter == "分":
-        if value % 10 in {0, 1, 3, 4, 6, 8}:
-            return _read_p_counter(raw_value, "ぷん")
-        return f"{reading}ふん"
-    if counter == "回":
-        return _read_p_counter(raw_value, "かい") if value % 10 in {0, 1, 6, 8} else f"{reading}かい"
+    if counter == "階" and final_digit == 3 and reading.endswith("さん"):
+        return f"{reading}がい"
     if counter == "階":
-        if value == 3:
-            return "さんがい"
-        return _read_p_counter(raw_value, "かい") if value % 10 in {0, 1, 6, 8} else f"{reading}かい"
-    if counter == "件":
-        return _read_p_counter(raw_value, "けん") if value % 10 in {0, 1, 6, 8} else f"{reading}けん"
-    if counter == "校":
-        return _read_p_counter(raw_value, "こう") if value % 10 in {0, 1, 6, 8} else f"{reading}こう"
-    suffixes = {
-        "名": "めい",
-        "科目": "かもく",
-        "教科": "きょうか",
-        "秒": "びょう",
-        "時": "じ",
-    }
-    if counter == "時" and value in {4, 7, 9}:
-        return {4: "よじ", 7: "しちじ", 9: "くじ"}[value]
-    return f"{reading}{suffixes[counter]}"
+        counter = "回"
+    if counter in {"分", "泊"}:
+        plain, geminated = {"分": ("ふん", "ぷん"), "泊": ("はく", "ぱく")}[counter]
+        if final_digit in _P_ROW_DIGITS:
+            return _read_p_counter(raw_value, geminated)
+        return f"{reading}{plain}"
+    if counter in _H_ROW_COUNTERS:
+        plain, geminated, voiced = _H_ROW_COUNTERS[counter]
+        if final_digit == 3 and reading.endswith("さん"):
+            return f"{reading}{voiced}"
+        if final_digit in _K_ROW_SOKUON_DIGITS:
+            return _read_p_counter(raw_value, geminated)
+        return f"{reading}{plain}"
+    if counter in _SOKUON_COUNTERS:
+        suffix, sokuon_digits = _SOKUON_COUNTERS[counter]
+        if final_digit in sokuon_digits:
+            return _read_p_counter(
+                raw_value,
+                suffix,
+                geminate_hundreds=sokuon_digits is _K_ROW_SOKUON_DIGITS,
+            )
+        return f"{reading}{suffix}"
+    return f"{reading}{_PLAIN_COUNTER_SUFFIXES[counter]}"
 
 
 def _read_clock_time(raw_hour: str, raw_minute: str) -> str:
-    hour = _read_counter(raw_hour, "時")
+    hour = _read_hour(raw_hour)
     if int(raw_minute) == 0:
         return hour
     return f"{hour}{_read_counter(raw_minute, '分')}"
+
+
+def _read_slash_date(raw_year: str | None, raw_month: str, raw_day: str) -> str | None:
+    month, day = int(raw_month), int(raw_day)
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        return None
+    year = "" if raw_year is None else f"{_read_year_value(raw_year)}ねん"
+    return f"{year}{_read_month_value(raw_month)}{_read_day_value(raw_day)}"
 
 
 def _strip_speech_markdown(text: str) -> str:
@@ -326,12 +446,18 @@ def _normalize_japanese_numbers(text: str) -> str:
     normalized = text.translate(_FULL_WIDTH_NUMBER_TRANSLATION)
     normalized = _WEEKDAY_PAREN_RE.sub(lambda match: f"、{match.group(1)}曜日、", normalized)
     normalized = _PHONE_NUMBER_RE.sub(
-        lambda match: "の".join(
-            "".join(_DIGIT_READINGS[int(digit)] for digit in group)
-            for group in match.groups()
-        ),
+        lambda match: "の".join(_read_digits(group) for group in match.groups()),
         normalized,
     )
+    normalized = _SLASH_FULL_DATE_RE.sub(
+        lambda match: _read_slash_date(*match.groups()) or match.group(0),
+        normalized,
+    )
+    normalized = _SLASH_MONTH_DAY_RE.sub(
+        lambda match: _read_slash_date(None, *match.groups()) or match.group(0),
+        normalized,
+    )
+    normalized = _YEN_SIGN_RE.sub(lambda match: f"{_read_year_value(match.group(1))}えん", normalized)
     normalized = _TIME_RANGE_RE.sub(
         lambda match: (
             f"{_read_clock_time(match.group(1), match.group(2))}から"
@@ -347,11 +473,26 @@ def _normalize_japanese_numbers(text: str) -> str:
         lambda match: _read_clock_time(match.group(1), match.group(2)),
         normalized,
     )
+    normalized = _NUMBER_RANGE_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(3)}から{match.group(2)}",
+        normalized,
+    )
     normalized = _FULL_DATE_RE.sub(
         lambda match: (
             f"{_read_year_value(match.group(1))}ねん"
             f"{_read_month_value(match.group(2))}"
             f"{_read_day_value(match.group(3))}"
+        ),
+        normalized,
+    )
+    normalized = _MONTH_DAY_RE.sub(
+        lambda match: f"{_read_month_value(match.group(1))}{_read_day_value(match.group(2))}",
+        normalized,
+    )
+    normalized = _DAY_SPAN_RE.sub(
+        lambda match: (
+            f"{_read_day_value(match.group(1), calendar=False)}"
+            f"{'かん' if match.group(2) == '間' else 'め'}"
         ),
         normalized,
     )
@@ -367,12 +508,19 @@ def _normalize_japanese_numbers(text: str) -> str:
         lambda match: f"{_read_year_value(match.group(1))}ねんかん",
         normalized,
     )
-    normalized = _CALENDAR_YEAR_RE.sub(
+    normalized = _YEAR_RE.sub(
         lambda match: f"{_read_year_value(match.group(1))}ねん",
         normalized,
     )
     normalized = _MONTH_RE.sub(lambda match: _read_month_value(match.group(1)), normalized)
-    normalized = _DAY_RE.sub(lambda match: _read_day_value(match.group(1)), normalized)
+    normalized = _DAY_RE.sub(
+        lambda match: _read_day_value(
+            match.group(1),
+            # 毎月1日 is a date; a bare 1日 (1日に2回) is a span.
+            calendar=match.string[max(0, match.start() - 1) : match.start()] == "月",
+        ),
+        normalized,
+    )
     normalized = _YEN_RE.sub(
         lambda match: f"{_read_year_value(match.group(1))}えん",
         normalized,
@@ -381,27 +529,27 @@ def _normalize_japanese_numbers(text: str) -> str:
         lambda match: f"{_read_decimal_value(match.group(1))}{_TECH_UNIT_READINGS[match.group(2).lower()]}",
         normalized,
     )
+    normalized = _METRIC_UNIT_RE.sub(
+        lambda match: f"{_read_decimal_value(match.group(1))}{_METRIC_UNIT_READINGS[match.group(2)]}",
+        normalized,
+    )
     normalized = _PERCENT_RE.sub(
-        lambda match: (
-            f"{_read_japanese_integer(match.group(1).split('.', 1)[0])}"
-            + (
-                "てん" + "".join(_DIGIT_READINGS[int(digit)] for digit in match.group(1).split('.', 1)[1])
-                if "." in match.group(1)
-                else ""
-            )
-            + "ぱーせんと"
-        ),
+        lambda match: f"{_read_decimal_value(match.group(1))}ぱーせんと",
         normalized,
     )
     normalized = _DOTTED_VERSION_RE.sub(
         lambda match: _read_dotted_version(match.group(1)),
         normalized,
     )
-    normalized = _DECIMAL_RE.sub(
+    normalized = _DECIMAL_RE.sub(lambda match: _read_decimal_value(match.group(1)), normalized)
+    normalized = _FRACTION_RE.sub(
         lambda match: (
-            f"{_read_japanese_integer(match.group(1))}てん"
-            + "".join(_DIGIT_READINGS[int(digit)] for digit in match.group(2))
+            f"{_read_japanese_integer(match.group(1))}ぶんの{_read_japanese_integer(match.group(2))}"
         ),
+        normalized,
+    )
+    normalized = _LARGE_KANJI_UNIT_RE.sub(
+        lambda match: _read_japanese_integer(match.group(1), before_large_unit=True),
         normalized,
     )
     normalized = _COUNTER_RE.sub(
@@ -434,6 +582,32 @@ def normalize_speech_input(text: str) -> str:
         normalized = pattern.sub(replacement, normalized)
     normalized = _naturalize_speech_punctuation(normalized)
     return FIXED_SPEECH_NORMALIZATIONS.get(normalized, normalized)
+
+
+_SMALL_KANA = frozenset("ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ")
+_PAUSE_CHARS = frozenset("、，,。．！？!?")
+
+
+def estimate_speech_mora(text: str) -> float:
+    """Rough spoken length in mora.
+
+    Kana count 1, kanji 1.7 (typical on'yomi), ASCII letters/digits 1.5, and a
+    pause at punctuation inside the text 2.
+    """
+    mora = 0.0
+    last_index = len(text.rstrip()) - 1
+    for index, char in enumerate(text):
+        if char in _SMALL_KANA:
+            continue
+        if "ぁ" <= char <= "ゖ" or "ァ" <= char <= "ヺ" or char == "ー":
+            mora += 1.0
+        elif "一" <= char <= "鿿" or char == "々":
+            mora += 1.7
+        elif char.isascii() and char.isalnum():
+            mora += 1.5
+        elif char in _PAUSE_CHARS and index < last_index:
+            mora += 2.0
+    return mora
 
 
 def split_progressive_speech_input(
@@ -519,6 +693,11 @@ def _env_float(env: Mapping[str, str], key: str, default: float) -> float:
     return float(raw) if raw else default
 
 
+def _env_optional_float(env: Mapping[str, str], key: str) -> float | None:
+    raw = env.get(key, "").strip()
+    return float(raw) if raw else None
+
+
 def _env_path(env: Mapping[str, str], key: str, default: Path) -> Path:
     raw = env.get(key, "").strip()
     return Path(raw).expanduser() if raw else default
@@ -547,9 +726,11 @@ class IrodoriSettings:
     codec_device: str = "cuda:0"
     codec_precision: str = "fp32"
     codec_repo: str = "Aratako/Semantic-DACVAE-Japanese-32dim"
-    num_steps: int = 40
+    # None lets the runtime pick the checkpoint default (RF: 40 steps, MeanFlow: 4 steps).
+    num_steps: int | None = None
     duration_scale: float = 1.0
-    max_ref_seconds: float = 30.0
+    # None uses the checkpoint's recommended reference length (30 s for legacy checkpoints).
+    max_ref_seconds: float | None = None
     response_sample_rate_hz: int = 16000
     preload_model: bool = False
     short_cache_enabled: bool = False
@@ -560,6 +741,13 @@ class IrodoriSettings:
     stream_chunk_bytes: int = 3200
     progressive_stream_enabled: bool = False
     progressive_max_segments: int = 2
+    short_duration_max_chars: int = 16
+    short_duration_scale: float = 0.8
+    # v4 checkpoints overestimate the length of very short phrases and fill the extra
+    # time with babble ("はい。" -> 3 s of speech), so cap the predicted duration at
+    # base + estimated mora / rate. A rate <= 0 disables the cap.
+    duration_cap_base_seconds: float = 0.7
+    duration_cap_mora_per_second: float = 6.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "IrodoriSettings":
@@ -593,9 +781,21 @@ class IrodoriSettings:
                 "Aratako/Semantic-DACVAE-Japanese-32dim",
             ).strip()
             or "Aratako/Semantic-DACVAE-Japanese-32dim",
-            num_steps=_env_int(values, "IRODORI_TTS_NUM_STEPS", 40),
+            num_steps=_env_optional_int(values, "IRODORI_TTS_NUM_STEPS"),
             duration_scale=_env_float(values, "IRODORI_TTS_DURATION_SCALE", 1.0),
-            max_ref_seconds=_env_float(values, "IRODORI_TTS_MAX_REF_SECONDS", 30.0),
+            short_duration_max_chars=_env_int(
+                values,
+                "IRODORI_TTS_SHORT_DURATION_MAX_CHARS",
+                16,
+            ),
+            short_duration_scale=_env_float(values, "IRODORI_TTS_SHORT_DURATION_SCALE", 0.8),
+            duration_cap_base_seconds=_env_float(values, "IRODORI_TTS_DURATION_CAP_BASE_SECONDS", 0.7),
+            duration_cap_mora_per_second=_env_float(
+                values,
+                "IRODORI_TTS_DURATION_CAP_MORA_PER_SECOND",
+                6.0,
+            ),
+            max_ref_seconds=_env_optional_float(values, "IRODORI_TTS_MAX_REF_SECONDS"),
             response_sample_rate_hz=_env_int(values, "IRODORI_TTS_RESPONSE_SAMPLE_RATE_HZ", 16000),
             preload_model=_env_bool(values, "IRODORI_TTS_PRELOAD_MODEL", False),
             short_cache_enabled=_env_bool(values, "IRODORI_TTS_SHORT_CACHE_ENABLED", False),
@@ -705,16 +905,14 @@ class IrodoriSynthesizer:
         if self._runtime is not None:
             return self._runtime
 
-        from huggingface_hub import hf_hub_download
-        from irodori_tts.inference_runtime import InferenceRuntime, RuntimeKey
+        from irodori_tts.inference_runtime import InferenceRuntime, RuntimeKey, download_hf_checkpoint
 
         if self._settings.checkpoint is not None:
             checkpoint = str(self._settings.checkpoint)
         else:
-            checkpoint = hf_hub_download(
-                repo_id=self._settings.hf_checkpoint,
-                filename="model.safetensors",
-            )
+            # v4 checkpoints need the bundled tokenizer/ next to model.safetensors, and
+            # quantized variants are addressed as "repo_id/subfolder".
+            checkpoint = download_hf_checkpoint(self._settings.hf_checkpoint)
 
         self._runtime = InferenceRuntime.from_key(
             RuntimeKey(
@@ -739,6 +937,12 @@ class IrodoriSynthesizer:
 
         ref_wav = self._settings.ensure_reference_wav()
         runtime = self.load_runtime()
+        duration_scale = self._settings.duration_scale
+        if (
+            self._settings.short_duration_max_chars > 0
+            and len(normalized_text) <= self._settings.short_duration_max_chars
+        ):
+            duration_scale = self._settings.short_duration_scale
         result = runtime.synthesize(
             SamplingRequest(
                 text=normalized_text,
@@ -746,7 +950,8 @@ class IrodoriSynthesizer:
                 ref_wav=str(ref_wav),
                 no_ref=False,
                 num_steps=self._settings.num_steps if num_steps is None else num_steps,
-                duration_scale=self._settings.duration_scale,
+                duration_scale=duration_scale,
+                max_seconds=self._max_seconds_for(normalized_text),
                 max_ref_seconds=self._settings.max_ref_seconds,
                 lora_adapter=None
                 if self._settings.lora_adapter is None
@@ -766,6 +971,13 @@ class IrodoriSynthesizer:
                 self._settings.response_sample_rate_hz,
             )
         return pcm, "audio/L16", self._settings.response_sample_rate_hz
+
+    def _max_seconds_for(self, normalized_text: str) -> float:
+        rate = self._settings.duration_cap_mora_per_second
+        if rate <= 0:
+            return MAX_SYNTHESIS_SECONDS
+        cap = self._settings.duration_cap_base_seconds + estimate_speech_mora(normalized_text) / rate
+        return round(min(MAX_SYNTHESIS_SECONDS, max(MIN_CAPPED_SECONDS, cap)), 3)
 
     def _is_short_cacheable(self, normalized_text: str) -> bool:
         return (
@@ -960,6 +1172,7 @@ def create_app(settings: IrodoriSettings | None = None, synthesizer: IrodoriSynt
         return {
             "status": "ok",
             "voice": resolved_settings.voice,
+            "checkpoint": str(resolved_settings.checkpoint or resolved_settings.hf_checkpoint),
             "model_loaded": resolved_synthesizer._runtime is not None,
             "reference_source_exists": resolved_settings.reference_source.is_file(),
             "reference_wav_exists": resolved_settings.reference_wav.is_file(),
