@@ -1,0 +1,32 @@
+[Unit]
+Description=ACE Kagawa English IndexTTS-2.5 HTTP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kyano
+Group=kyano
+WorkingDirectory=/home/kyano/workspace/ACE/ace_kagawa/en-tts
+Environment=HF_HOME=/data/ACE/en-tts/hf-cache
+Environment=HF_HUB_CACHE=/data/ACE/en-tts/models/IndexTTS-2.5/hf_cache
+Environment=CUDA_VISIBLE_DEVICES=1
+Environment=INDEXTTS_TTS_HOST=0.0.0.0
+Environment=INDEXTTS_TTS_PORT=8023
+Environment=INDEXTTS_TTS_REPO_DIR=/data/ACE/en-tts/repos/IndexTTS
+Environment=INDEXTTS_TTS_MODEL_DIR=/data/ACE/en-tts/models/IndexTTS-2.5
+Environment=INDEXTTS_TTS_DEVICE=cuda:0
+Environment=INDEXTTS_TTS_VOICE=kagawa_en
+Environment=INDEXTTS_TTS_REFERENCE_AUDIO=/data/ACE/en-tts/reference/kagawa_en_sentence1.wav
+Environment=INDEXTTS_TTS_PREWARM_TEXT=/home/kyano/workspace/ACE/ace_kagawa/en-tts/voice/symposium_opening_script.md
+Environment=INDEXTTS_TTS_RESPONSE_SAMPLE_RATE_HZ=16000
+Environment=INDEXTTS_TTS_STREAM_CHUNK_BYTES=3200
+Environment=INDEXTTS_TTS_TRAILING_SILENCE_MS=500
+Environment=INDEXTTS_TTS_PRELOAD_MODEL=1
+ExecStart=/data/ACE/en-tts/repos/IndexTTS/.venv/bin/python /home/kyano/workspace/ACE/ace_kagawa/en-tts/indextts_tts_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

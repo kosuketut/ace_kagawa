@@ -1,0 +1,28 @@
+[Unit]
+Description=ACE Kagawa English Qwen3-TTS HTTP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kyano
+Group=kyano
+WorkingDirectory=/home/kyano/workspace/ACE/ace_kagawa/en-tts
+Environment=HF_HOME=/data/ACE/en-tts/hf-cache
+Environment=QWEN_TTS_HOST=0.0.0.0
+Environment=QWEN_TTS_PORT=8025
+Environment=QWEN_TTS_DEVICE=cuda:1
+Environment=QWEN_TTS_VOICE=kagawa_en
+Environment=QWEN_TTS_LANGUAGE=Auto
+Environment=QWEN_TTS_MODEL_DIR=/data/ACE/en-tts/models/Qwen3-TTS-12Hz-1.7B-Base
+Environment=QWEN_TTS_REFERENCE_AUDIO=/home/kyano/workspace/ACE/ace_kagawa/en-tts/voice/kagawa_EN.MP3
+Environment=QWEN_TTS_REFERENCE_TEXT=/home/kyano/workspace/ACE/ace_kagawa/en-tts/voice/qwen_tts_voice_clone_english_script.md
+Environment=QWEN_TTS_PREWARM_TEXT=/home/kyano/workspace/ACE/ace_kagawa/en-tts/voice/symposium_opening_script.md
+Environment=QWEN_TTS_RESPONSE_SAMPLE_RATE_HZ=24000
+ExecStart=/home/kyano/workspace/ACE/ace_kagawa/en-tts/.venv/bin/python /home/kyano/workspace/ACE/ace_kagawa/en-tts/qwen_tts_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
