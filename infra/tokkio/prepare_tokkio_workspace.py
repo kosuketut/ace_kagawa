@@ -19,6 +19,7 @@ DEFAULT_LLM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 DEFAULT_LLM_API_KEY = ""
 DEFAULT_IRODORI_TTS_PORT = "8021"
 DEFAULT_IRODORI_TTS_SERVICE = "ace-irodori-tts.service"
+DEFAULT_QWEN_TTS_PORT = "8023"
 DEFAULT_RAG_PORT = "8081"
 DEFAULT_RAG_COLLECTION_NAME = "ace_kagawa"
 DEFAULT_RAG_SUFFIX_PROMPT = "日本語で通常40から60文字、原則1文で簡潔に答えてください。詳しい説明を求められた場合だけ100文字以内、最大2文にしてください。香川先生や香川豊先生について聞かれた場合は、自分のこととして「私は」または「私の」で答えてください。箇条書きは求められた時だけにしてください。"
@@ -256,6 +257,14 @@ def resolve_irodori_tts_settings(values: dict[str, str]) -> IrodoriTtsSettings:
     )
 
 
+def resolve_qwen_tts_base_url(values: dict[str, str]) -> str:
+    base_url = values.get("TOKKIO_QWEN_TTS_BASE_URL", "").strip()
+    if not base_url:
+        app_host = values.get("TOKKIO_APP_HOST_IPV4_ADDR", "").strip() or "127.0.0.1"
+        base_url = f"http://{app_host}:{DEFAULT_QWEN_TTS_PORT}"
+    return normalize_http_base_url(base_url)
+
+
 def resolve_rag_settings(values: dict[str, str]) -> RagSettings:
     enabled = is_enabled(values, "TOKKIO_RAG_ENABLED", default=False)
     mode = normalize_rag_mode(values.get("TOKKIO_RAG_MODE", DEFAULT_RAG_MODE))
@@ -405,8 +414,12 @@ def maybe_apply_japanese_customization(
             resolve_llm_settings(values).base_url,
             "--llm-model",
             resolve_llm_settings(values).model,
+            "--tts-processor",
+            values.get("TOKKIO_TTS_PROCESSOR", "").strip() or "IrodoriTTSService",
             "--irodori-tts-base-url",
             irodori_tts_settings.base_url,
+            "--qwen-tts-base-url",
+            resolve_qwen_tts_base_url(values),
             "--rag-enabled",
             "true" if rag_settings.enabled else "false",
             "--rag-mode",

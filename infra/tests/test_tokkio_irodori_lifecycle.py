@@ -42,6 +42,17 @@ class TokkioIrodoriLifecycleTests(unittest.TestCase):
         self.assertIn("stop_irodori_tts_service", script)
         self.assertIn("show_irodori_tts_status", script)
         self.assertIn("TOKKIO_IRODORI_TTS_ENABLED", script)
+        self.assertIn("start_qwen_tts_service", script)
+        self.assertIn("stop_qwen_tts_service", script)
+        self.assertIn("show_qwen_tts_status", script)
+        self.assertIn("TOKKIO_QWEN_TTS_ENABLED", script)
+
+    def test_manage_script_waits_for_tokkio_endpoints_before_the_final_check(self) -> None:
+        script = (ROOT / "infra" / "tokkio" / "manage_tokkio.sh").read_text(encoding="utf-8")
+
+        self.assertIn("wait_for_tokkio_endpoints", script)
+        self.assertIn("TOKKIO_ENDPOINT_WAIT_ATTEMPTS", script)
+        self.assertIn("TOKKIO_ENDPOINT_WAIT_SECONDS", script)
 
     def test_manage_script_syncs_controller_to_code_and_app_paths(self) -> None:
         script = (ROOT / "infra" / "tokkio" / "manage_tokkio.sh").read_text(encoding="utf-8")

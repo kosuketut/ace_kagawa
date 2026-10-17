@@ -89,8 +89,11 @@
 - `prepare_tokkio_workspace.py` で generated env を同期
 - `sudo systemctl start containerd kubelet nginx coturn`
 - `kubectl get pods -n app`
-- `check_tokkio_endpoints.py --insecure --kubectl`
+- UI / API / Grafana が応答するまで待機（既定 36 回 × 5 秒）
+- `check_tokkio_endpoints.py --insecure --kubectl --tts-base-url ...`（日本語 TTS の `/healthz` と短い合成も確認）
 - UI / API / Grafana の確認 URL 表示
+
+TTS・RAG・endpoint のどれかの確認に失敗すると、app workload を戻したうえで最後に終了コード 1 で終わります。詳細は `infra/tokkio/README.md` の endpoint 確認の節を参照してください。
 
 日常運用でよく使う補助コマンド:
 

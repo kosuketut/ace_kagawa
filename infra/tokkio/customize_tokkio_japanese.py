@@ -15,8 +15,18 @@ from pathlib import Path
 
 DEFAULT_ACE_REPO_DIR = Path(__file__).resolve().parent / "workspace" / "NVIDIA-ACE"
 DEFAULT_LLM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_LLM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+DEFAULT_LLM_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
 DEFAULT_IRODORI_TTS_BASE_URL = "http://10.209.1.12:8021"
+# English IndexTTS-2.5 service. Qwen names remain as compatibility names for
+# the existing OpenAI-compatible HTTP transport and English-mode selector.
+DEFAULT_QWEN_TTS_BASE_URL = "http://10.209.1.12:8023"
+DEFAULT_TTS_PROCESSOR = "IrodoriTTSService"
+SUPPORTED_TTS_PROCESSORS = {
+    "ElevenLabsTTSService",
+    "RivaTTSService",
+    "IrodoriTTSService",
+    "QwenTTSService",
+}
 DEFAULT_RAG_SERVER_URL = "http://10.209.1.12:8081/v1"
 DEFAULT_RAG_COLLECTION_NAME = "ace_kagawa"
 DEFAULT_RAG_SUFFIX_PROMPT = "日本語で通常40から60文字、原則1文で簡潔に答えてください。詳しい説明を求められた場合だけ100文字以内、最大2文にしてください。香川先生や香川豊先生について聞かれた場合は、自分のこととして「私は」または「私の」で答えてください。詳しい説明でも、見出し、箇条書き、Markdown、アスタリスクなどの記号装飾は使わず、読み上げに適した連続した文章で答えてください。"
@@ -97,6 +107,7 @@ DEFAULT_ASR_RMIR = "nvidia/riva/rmir_asr_conformer_unified_ja_jp_str:2.19.0"
 OBSOLETE_NEMOTRON_ASR_MODEL = "nvidia/nemotron-3.5-asr-streaming-0.6b"
 PREVIOUS_JAPANESE_ASR_RMIR = DEFAULT_ASR_RMIR
 JAPANESE_ASR_MODEL = DEFAULT_ASR_MODEL
+ENGLISH_ASR_MODEL = "parakeet-1.1b-en-US-asr-streaming-silero-vad-asr-bls-ensemble"
 ENGLISH_ASR_RMIR = "nvidia/riva/rmir_asr_parakeet_1-1b_en_us_str_silero:2.19.0.1"
 
 CONFIG_PY = """# Copyright(c) 2025 NVIDIA Corporation. All rights reserved.
@@ -116,7 +127,7 @@ from nvidia_pipecat.services.animation_graph_service import AnimationGraphConfig
 
 class Pipeline(BaseModel):
     llm_processor: Literal["NvidiaRAGService", "NvidiaLLMService", "NvidiaLLMRAGRouterService", "OpenAILLMService"]
-    tts_processor: Literal["ElevenLabsTTSService", "RivaTTSService", "IrodoriTTSService"] = "IrodoriTTSService"
+    tts_processor: Literal["ElevenLabsTTSService", "RivaTTSService", "IrodoriTTSService", "QwenTTSService"] = "IrodoriTTSService"
     filler: list[str] = [
         "確認しています",
     ]
@@ -161,7 +172,7 @@ class NvidiaRAGRouterService(BaseModel):
 
 class NvidiaLLMService(BaseModel):
     base_url: str = "https://integrate.api.nvidia.com/v1"
-    model: str = "nvidia/nemotron-3-ultra-550b-a55b"
+    model: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 
 class OpenAILLMService(BaseModel):
@@ -202,6 +213,16 @@ class IrodoriTTSServiceConfig(BaseModel):
     response_format: str = "pcm"
 
 
+class QwenTTSServiceConfig(BaseModel):
+    # Compatibility transport for en-tts/indextts_tts_server.py. Audio is
+    # resampled from the model's native rate to Audio2Face's 16 kHz contract.
+    base_url: str = "http://10.209.1.12:8023"
+    voice: str = "kagawa_en"
+    sample_rate: int = 16000
+    timeout_s: float = 180.0
+    response_format: str = "pcm"
+
+
 class FacialGestureProviderProcessor(BaseModel):
     user_stopped_speaking_gesture: str
     start_interruption_gesture: str
@@ -226,6 +247,7 @@ class Config(BaseModel):
     ElevenLabsTTSService: ElevenLabsTTSServiceConfig
     RivaTTSService: RivaTTSServiceConfig
     IrodoriTTSService: IrodoriTTSServiceConfig
+    QwenTTSService: QwenTTSServiceConfig
     FacialGestureProviderProcessor: FacialGestureProviderProcessor
     AnimationGraphService: AnimationGraphConfiguration
     RAGMultimodalResponseProcessor: RAGMultimodalResponseProcessor
@@ -244,7 +266,7 @@ CONFIG_YAML = """Pipeline:
     tts_processor: "IrodoriTTSService"
     filler:
         - "確認しています"
-    time_delay: 2.5
+    time_delay: 8.0
 
 UserPresenceProcesssor:
     welcome_message: "こんにちは。ご用件をどうぞ。"
@@ -268,6 +290,7 @@ OpenAILLMContext:
             標準語で自然かつ簡潔に答えてください。
             通常は40から60文字、原則1文で答えてください。詳しい説明を求められた場合だけ、100文字以内、最大2文までにしてください。
             箇条書き、番号付きリスト、マークダウン、絵文字、記号装飾、内部思考は出さないでください。
+            文字数や文数などの制約条件を回答中に書いたり繰り返したりしないでください。括弧書きの注記も出さないでください。
             詳しい説明でも、アスタリスクやハイフンで列挙せず、各項目を「です」「ます」で終わる読み上げ用の文章にしてください。
             ここにない経歴、数値、論文、受賞、年度は推測で断定せず、参考情報では確認できないと短く伝えてください。
             ユーザー発話の前に「参考情報」ブロックがある場合は、その範囲を最優先の根拠として使い、自然な標準語で短く織り込んでください。
@@ -300,7 +323,7 @@ NvidiaRAGRouterService:
 # This configuration is only used when llm_processor is set to "NvidiaLLMService"
 NvidiaLLMService:
     base_url: "https://integrate.api.nvidia.com/v1"
-    model: "nvidia/nemotron-3-ultra-550b-a55b"
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 # This configuration is only used when llm_processor is set to "OpenAILLMService"
 OpenAILLMService:
@@ -339,6 +362,16 @@ RivaTTSService:
 IrodoriTTSService:
     base_url: "http://10.209.1.12:8021"
     voice: "kagawa"
+    sample_rate: 16000
+    timeout_s: 180.0
+    response_format: "pcm"
+
+QwenTTSService:
+    # Compatibility selector for English IndexTTS-2.5. Same
+    # /v1/audio/speech contract as IrodoriTTSService; resampled to the
+    # Audio2Face 16 kHz stream rate before forwarding.
+    base_url: "http://10.209.1.12:8023"
+    voice: "kagawa_en"
     sample_rate: 16000
     timeout_s: 180.0
     response_format: "pcm"
@@ -686,6 +719,28 @@ NEW_CONFIG_DRIVEN_TTS_SNIPPET = """        if config.Pipeline.tts_processor == "
 """
 
 
+def patch_qwen_tts_snippet(bot_py_path: Path) -> None:
+    """Insert the QwenTTSService branch (reuses the Irodori client class) if missing."""
+    original = bot_py_path.read_text(encoding="utf-8")
+    if "config.QwenTTSService" in original:
+        return
+    riva_branch = '        elif config.Pipeline.tts_processor == "RivaTTSService":'
+    if riva_branch not in original:
+        raise RuntimeError("RivaTTSService branch not found in bot.py; cannot insert QwenTTSService branch")
+    qwen_branch = '''        elif config.Pipeline.tts_processor == "QwenTTSService":
+            from .tokkio_irodori_tts import IrodoriTTSService
+
+            tts = IrodoriTTSService(
+                base_url=config.QwenTTSService.base_url,
+                voice=config.QwenTTSService.voice,
+                sample_rate=config.QwenTTSService.sample_rate,
+                timeout_s=config.QwenTTSService.timeout_s,
+                response_format=config.QwenTTSService.response_format,
+            )
+'''
+    replace_literal(bot_py_path, riva_branch, qwen_branch + riva_branch)
+
+
 def quote_yaml(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -716,6 +771,14 @@ def parse_bool(value: str | bool) -> bool:
     if isinstance(value, bool):
         return value
     return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def normalize_tts_processor(value: str) -> str:
+    processor = value.strip() or DEFAULT_TTS_PROCESSOR
+    if processor not in SUPPORTED_TTS_PROCESSORS:
+        choices = ", ".join(sorted(SUPPORTED_TTS_PROCESSORS))
+        raise ValueError(f"TTS processor must be one of {choices}: {value}")
+    return processor
 
 
 def normalize_rag_mode(value: str) -> str:
@@ -750,7 +813,9 @@ def build_config_yaml(
     *,
     llm_base_url: str = DEFAULT_LLM_BASE_URL,
     llm_model: str = DEFAULT_LLM_MODEL,
+    tts_processor: str = DEFAULT_TTS_PROCESSOR,
     irodori_tts_base_url: str = DEFAULT_IRODORI_TTS_BASE_URL,
+    qwen_tts_base_url: str = DEFAULT_QWEN_TTS_BASE_URL,
     rag_enabled: bool = False,
     rag_mode: str = DEFAULT_RAG_MODE,
     rag_provider: str = DEFAULT_RAG_PROVIDER,
@@ -771,6 +836,19 @@ def build_config_yaml(
 ) -> str:
     base_url = normalize_openai_base_url(llm_base_url) or DEFAULT_LLM_BASE_URL
     model = llm_model.strip() or DEFAULT_LLM_MODEL
+    selected_tts_processor = normalize_tts_processor(tts_processor)
+    config_yaml = CONFIG_YAML
+    if selected_tts_processor == "QwenTTSService":
+        config_yaml = (
+            config_yaml.replace('    filler:\n        - "確認しています"\n', "    filler: []\n")
+            .replace('    welcome_message: "こんにちは。ご用件をどうぞ。"', '    welcome_message: ""')
+            .replace('    farewell_message: "ありがとうございました。"', '    farewell_message: ""')
+            .replace('    default_message: "必要でしたら、いつでもお声がけください。"', '    default_message: ""')
+            .replace("日本語で応答する対話型", "英語で応答する対話型")
+            .replace("標準語で自然かつ簡潔に答えてください。", "自然な英語で簡潔に答えてください。")
+            .replace("日本語で通常40から60文字、原則1文で簡潔に答えてください。", "自然な英語で原則1文、簡潔に答えてください。")
+            .replace('    language: "ja-JP"\n    sample_rate: 16000\n    model: "conformer-unified-ja-JP-asr-streaming-asr-bls-ensemble"', f'    language: "en-US"\n    sample_rate: 16000\n    model: "{ENGLISH_ASR_MODEL}"')
+        )
     tts_base_url = normalize_http_base_url(irodori_tts_base_url) or DEFAULT_IRODORI_TTS_BASE_URL
     normalized_rag_server_url = normalize_rag_server_url(rag_server_url) or DEFAULT_RAG_SERVER_URL
     rag_collection = rag_collection_name.strip() or DEFAULT_RAG_COLLECTION_NAME
@@ -786,7 +864,8 @@ def build_config_yaml(
     else:
         llm_processor = "NvidiaLLMRAGRouterService"
     return (
-        CONFIG_YAML.replace('llm_processor: "NvidiaLLMService"', f"llm_processor: {quote_yaml(llm_processor)}")
+        config_yaml.replace('llm_processor: "NvidiaLLMService"', f"llm_processor: {quote_yaml(llm_processor)}")
+        .replace('tts_processor: "IrodoriTTSService"', f"tts_processor: {quote_yaml(selected_tts_processor)}")
         .replace('use_knowledge_base: true', f"use_knowledge_base: {'true' if rag_use_knowledge_base else 'false'}")
         .replace(f"max_tokens: {DEFAULT_RAG_MAX_TOKENS}", f"max_tokens: {rag_max_tokens}")
         .replace(f"vdb_top_k: {DEFAULT_RAG_VDB_TOP_K}", f"vdb_top_k: {rag_vdb_top_k}")
@@ -820,6 +899,10 @@ def build_config_yaml(
         .replace(f'base_url: "{DEFAULT_LLM_BASE_URL}"', f"base_url: {quote_yaml(base_url)}")
         .replace(f'model: "{DEFAULT_LLM_MODEL}"', f"model: {quote_yaml(model)}")
         .replace('base_url: "http://10.209.1.12:8021"', f"base_url: {quote_yaml(tts_base_url)}")
+        .replace(
+            'base_url: "http://10.209.1.12:8023"',
+            f"base_url: {quote_yaml(normalize_http_base_url(qwen_tts_base_url) or DEFAULT_QWEN_TTS_BASE_URL)}",
+        )
     )
 
 
@@ -906,30 +989,35 @@ def patch_stt_snippet(bot_py_path: Path) -> None:
     raise RuntimeError(f"expected STT snippet not found in {bot_py_path}")
 
 
-def patch_riva_values(ace_repo_dir: Path) -> list[Path]:
+def patch_riva_values(
+    ace_repo_dir: Path,
+    *,
+    tts_processor: str = DEFAULT_TTS_PROCESSOR,
+) -> list[Path]:
     values_paths = sorted(
         (ace_repo_dir / "workflows" / "tokkio" / "5.0.0-ga" / "llm-rag").glob("tokkio-*/values.yaml")
     )
     if not values_paths:
         raise FileNotFoundError("Tokkio llm-rag values.yaml files were not found")
 
+    target_rmir = ENGLISH_ASR_RMIR if normalize_tts_processor(tts_processor) == "QwenTTSService" else DEFAULT_ASR_RMIR
     changed_paths: list[Path] = []
     for path in values_paths:
         original = path.read_text(encoding="utf-8")
-        if DEFAULT_ASR_RMIR in original:
+        if target_rmir in original:
             changed_paths.append(path)
             continue
         replacement_source = next(
             (
                 model
-                for model in (ENGLISH_ASR_RMIR, OBSOLETE_NEMOTRON_ASR_MODEL, DEFAULT_ASR_MODEL)
+                for model in (DEFAULT_ASR_RMIR, ENGLISH_ASR_RMIR, OBSOLETE_NEMOTRON_ASR_MODEL, DEFAULT_ASR_MODEL)
                 if model in original
             ),
             None,
         )
         if replacement_source is None:
             raise RuntimeError(f"expected Riva ASR RMIR not found in {path}")
-        write_text(path, original.replace(replacement_source, DEFAULT_ASR_RMIR))
+        write_text(path, original.replace(replacement_source, target_rmir))
         changed_paths.append(path)
     return changed_paths
 
@@ -939,7 +1027,9 @@ def patch_profile_ace_controller_configs(
     *,
     llm_base_url: str,
     llm_model: str,
+    tts_processor: str,
     irodori_tts_base_url: str,
+    qwen_tts_base_url: str,
     rag_enabled: bool,
     rag_mode: str,
     rag_provider: str,
@@ -969,7 +1059,9 @@ def patch_profile_ace_controller_configs(
             build_config_yaml(
                 llm_base_url=llm_base_url,
                 llm_model=llm_model,
+                tts_processor=tts_processor,
                 irodori_tts_base_url=irodori_tts_base_url,
+                qwen_tts_base_url=qwen_tts_base_url,
                 rag_enabled=rag_enabled,
                 rag_mode=rag_mode,
                 rag_provider=rag_provider,
@@ -997,7 +1089,9 @@ def apply_patch(
     *,
     llm_base_url: str = DEFAULT_LLM_BASE_URL,
     llm_model: str = DEFAULT_LLM_MODEL,
+    tts_processor: str = DEFAULT_TTS_PROCESSOR,
     irodori_tts_base_url: str = DEFAULT_IRODORI_TTS_BASE_URL,
+    qwen_tts_base_url: str = DEFAULT_QWEN_TTS_BASE_URL,
     rag_enabled: bool = False,
     rag_mode: str = DEFAULT_RAG_MODE,
     rag_provider: str = DEFAULT_RAG_PROVIDER,
@@ -1050,7 +1144,9 @@ def apply_patch(
         build_config_yaml(
             llm_base_url=llm_base_url,
             llm_model=llm_model,
+            tts_processor=tts_processor,
             irodori_tts_base_url=irodori_tts_base_url,
+            qwen_tts_base_url=qwen_tts_base_url,
             rag_enabled=rag_enabled,
             rag_mode=rag_mode,
             rag_provider=rag_provider,
@@ -1089,7 +1185,9 @@ def apply_patch(
         ace_repo_dir,
         llm_base_url=llm_base_url,
         llm_model=llm_model,
+        tts_processor=tts_processor,
         irodori_tts_base_url=irodori_tts_base_url,
+        qwen_tts_base_url=qwen_tts_base_url,
         rag_enabled=rag_enabled,
         rag_mode=rag_mode,
         rag_provider=rag_provider,
@@ -1124,6 +1222,7 @@ def apply_patch(
                 "                voice_name=config.RivaTTSService.voice_name,\n",
                 "                voice_id=config.RivaTTSService.voice_name,\n",
             )
+    patch_qwen_tts_snippet(bot_py_path)
     patch_stt_snippet(bot_py_path)
 
     return [
@@ -1136,7 +1235,7 @@ def apply_patch(
         irodori_tts_py_path,
         tokkio_rag_py_path,
         *profile_config_paths,
-        *patch_riva_values(ace_repo_dir),
+        *patch_riva_values(ace_repo_dir, tts_processor=tts_processor),
     ]
 
 
@@ -1159,9 +1258,20 @@ def parse_args() -> argparse.Namespace:
         help=f"Model id exposed by the OpenAI-compatible LLM server (default: {DEFAULT_LLM_MODEL})",
     )
     parser.add_argument(
+        "--tts-processor",
+        default=os.environ.get("TOKKIO_TTS_PROCESSOR", DEFAULT_TTS_PROCESSOR),
+        choices=sorted(SUPPORTED_TTS_PROCESSORS),
+        help=f"Tokkio TTS processor (default: {DEFAULT_TTS_PROCESSOR})",
+    )
+    parser.add_argument(
         "--irodori-tts-base-url",
         default=os.environ.get("TOKKIO_IRODORI_TTS_BASE_URL", DEFAULT_IRODORI_TTS_BASE_URL),
         help=f"Base URL for the host-side Irodori-TTS HTTP service (default: {DEFAULT_IRODORI_TTS_BASE_URL})",
+    )
+    parser.add_argument(
+        "--qwen-tts-base-url",
+        default=os.environ.get("TOKKIO_QWEN_TTS_BASE_URL", DEFAULT_QWEN_TTS_BASE_URL),
+        help=f"Base URL for the host-side English IndexTTS HTTP service (default: {DEFAULT_QWEN_TTS_BASE_URL})",
     )
     parser.add_argument(
         "--rag-enabled",
@@ -1277,7 +1387,9 @@ def main() -> int:
         args.ace_repo_dir.resolve(),
         llm_base_url=args.llm_base_url,
         llm_model=args.llm_model,
+        tts_processor=args.tts_processor,
         irodori_tts_base_url=args.irodori_tts_base_url,
+        qwen_tts_base_url=args.qwen_tts_base_url,
         rag_enabled=parse_bool(args.rag_enabled),
         rag_mode=args.rag_mode,
         rag_provider=args.rag_provider,
@@ -1304,7 +1416,7 @@ def main() -> int:
     print("Next steps:")
     print("1. Start Tokkio or run reapply so ACE Configurator syncs the updated app-storage-volume.")
     print("2. Restart only the controller if you need a faster reload path after sync.")
-    print("3. Ensure ace-irodori-tts.service is running before starting the controller.")
+    print(f"3. Ensure the selected TTS service ({args.tts_processor}) is running before starting the controller.")
     return 0
 
 

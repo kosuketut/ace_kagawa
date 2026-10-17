@@ -6,8 +6,11 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 DEFAULT_UI_URL="https://10.209.1.12:30111"
 DEFAULT_API_URL="http://10.209.1.12:30888"
 DEFAULT_GRAFANA_URL="http://10.209.1.12:32300"
+DEFAULT_IRODORI_TTS_PORT="8021"
 DEFAULT_IRODORI_TTS_HEALTH_URL="http://127.0.0.1:8021/healthz"
 DEFAULT_IRODORI_TTS_SERVICE="ace-irodori-tts.service"
+DEFAULT_QWEN_TTS_HEALTH_URL="http://127.0.0.1:8023/healthz"
+DEFAULT_QWEN_TTS_SERVICE="ace-indextts-tts.service"
 DEFAULT_RAG_HEALTH_URL="http://127.0.0.1:8081/v1/health?check_dependencies=true"
 
 usage() {
@@ -15,7 +18,7 @@ usage() {
 Usage: $0 <start|stop|status|restart|reapply|restart-controller|sync-controller|logs|help> [options] [logs-target]
 
 Commands:
-  start                Start host services, restore app workload replicas if saved, then verify Tokkio
+  start                Start host services, restore app workload replicas if saved, wait for the endpoints, then verify Tokkio
   stop                 Scale app workloads in namespace app to zero, then stop host services without uninstalling Tokkio
   status               Show systemd state, app pods, endpoint checks, and controller pod status
   restart              Run stop, wait briefly, then run start
@@ -84,11 +87,29 @@ load_env() {
   UI_URL="${TOKKIO_UI_URL:-${DEFAULT_UI_URL}}"
   API_URL="${TOKKIO_API_URL:-${DEFAULT_API_URL}}"
   GRAFANA_URL="${TOKKIO_GRAFANA_URL:-${DEFAULT_GRAFANA_URL}}"
+  ENDPOINT_WAIT_ATTEMPTS="${TOKKIO_ENDPOINT_WAIT_ATTEMPTS:-36}"
+  ENDPOINT_WAIT_SECONDS="${TOKKIO_ENDPOINT_WAIT_SECONDS:-5}"
+  TTS_PROCESSOR="${TOKKIO_TTS_PROCESSOR:-IrodoriTTSService}"
+  TTS_SYNTHESIS_CHECK_ENABLED="${TOKKIO_TTS_SYNTHESIS_CHECK_ENABLED:-true}"
   IRODORI_TTS_ENABLED="${TOKKIO_IRODORI_TTS_ENABLED:-true}"
+  # Same default as resolve_irodori_tts_settings in prepare_tokkio_workspace.py: the URL the controller uses.
+  IRODORI_TTS_BASE_URL="${TOKKIO_IRODORI_TTS_BASE_URL:-http://${TOKKIO_APP_HOST_IPV4_ADDR:-127.0.0.1}:${DEFAULT_IRODORI_TTS_PORT}}"
   IRODORI_TTS_SERVICE="${TOKKIO_IRODORI_TTS_SERVICE:-${DEFAULT_IRODORI_TTS_SERVICE}}"
   IRODORI_TTS_HEALTH_URL="${TOKKIO_IRODORI_TTS_HEALTH_URL:-${DEFAULT_IRODORI_TTS_HEALTH_URL}}"
   IRODORI_TTS_WAIT_ATTEMPTS="${TOKKIO_IRODORI_TTS_WAIT_ATTEMPTS:-60}"
   IRODORI_TTS_WAIT_SECONDS="${TOKKIO_IRODORI_TTS_WAIT_SECONDS:-2}"
+  # QwenTTSService needs the English TTS unit, so an unset or empty flag follows the processor.
+  # An explicit false is kept; start/restart then refuse to run (ensure_tts_lifecycle_matches_processor)
+  # rather than silently overriding it.
+  if uses_english_tts_processor; then
+    QWEN_TTS_ENABLED="${TOKKIO_QWEN_TTS_ENABLED:-true}"
+  else
+    QWEN_TTS_ENABLED="${TOKKIO_QWEN_TTS_ENABLED:-false}"
+  fi
+  QWEN_TTS_SERVICE="${TOKKIO_QWEN_TTS_SERVICE:-${DEFAULT_QWEN_TTS_SERVICE}}"
+  QWEN_TTS_HEALTH_URL="${TOKKIO_QWEN_TTS_HEALTH_URL:-${DEFAULT_QWEN_TTS_HEALTH_URL}}"
+  QWEN_TTS_WAIT_ATTEMPTS="${TOKKIO_QWEN_TTS_WAIT_ATTEMPTS:-180}"
+  QWEN_TTS_WAIT_SECONDS="${TOKKIO_QWEN_TTS_WAIT_SECONDS:-2}"
   RAG_ENABLED="${TOKKIO_RAG_ENABLED:-false}"
   RAG_MODE="${TOKKIO_RAG_MODE:-auto}"
   RAG_PROVIDER="${TOKKIO_RAG_PROVIDER:-local}"
@@ -154,7 +175,11 @@ start_irodori_tts_service() {
   fi
 
   info "Starting Irodori TTS service: ${IRODORI_TTS_SERVICE}"
-  sudo systemctl start "${IRODORI_TTS_SERVICE}"
+  # Callers run this under `||`, where errexit is off, so a failed start must return here.
+  if ! sudo systemctl start "${IRODORI_TTS_SERVICE}"; then
+    warn "Failed to start Irodori TTS service: ${IRODORI_TTS_SERVICE}"
+    return 1
+  fi
   wait_for_irodori_tts_health
 }
 
@@ -181,6 +206,87 @@ show_irodori_tts_status() {
   else
     warn "Irodori TTS health check failed: ${IRODORI_TTS_HEALTH_URL}"
   fi
+}
+
+is_qwen_tts_enabled() {
+  case "${QWEN_TTS_ENABLED,,}" in
+    ""|0|false|no|off) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+check_qwen_tts_health() {
+  curl -fsS "${QWEN_TTS_HEALTH_URL}" >/dev/null
+}
+
+wait_for_qwen_tts_health() {
+  local attempt
+  for attempt in $(seq 1 "${QWEN_TTS_WAIT_ATTEMPTS}"); do
+    if check_qwen_tts_health; then
+      info "English TTS health check passed: ${QWEN_TTS_HEALTH_URL}"
+      return 0
+    fi
+    info "Waiting for English TTS health (${attempt}/${QWEN_TTS_WAIT_ATTEMPTS})"
+    sleep "${QWEN_TTS_WAIT_SECONDS}"
+  done
+  warn "Timed out waiting for English TTS health: ${QWEN_TTS_HEALTH_URL}"
+  return 1
+}
+
+start_qwen_tts_service() {
+  if ! is_qwen_tts_enabled; then
+    info "English TTS service integration disabled."
+    return 0
+  fi
+  info "Starting English TTS service: ${QWEN_TTS_SERVICE}"
+  if ! sudo systemctl start "${QWEN_TTS_SERVICE}"; then
+    warn "Failed to start English TTS service: ${QWEN_TTS_SERVICE}"
+    return 1
+  fi
+  wait_for_qwen_tts_health
+}
+
+stop_qwen_tts_service() {
+  is_qwen_tts_enabled || return 0
+  info "Stopping English TTS service: ${QWEN_TTS_SERVICE}"
+  sudo systemctl stop "${QWEN_TTS_SERVICE}" || true
+}
+
+show_qwen_tts_status() {
+  if ! is_qwen_tts_enabled; then
+    info "English TTS service integration disabled."
+    return 0
+  fi
+  info "English TTS systemctl is-active ${QWEN_TTS_SERVICE}"
+  systemctl is-active "${QWEN_TTS_SERVICE}" || true
+  if check_qwen_tts_health; then
+    info "English TTS health: ok (${QWEN_TTS_HEALTH_URL})"
+  else
+    warn "English TTS health check failed: ${QWEN_TTS_HEALTH_URL}"
+  fi
+}
+
+uses_english_tts_processor() {
+  [[ "${TTS_PROCESSOR}" == "QwenTTSService" ]]
+}
+
+ensure_tts_lifecycle_matches_processor() {
+  if uses_english_tts_processor && ! is_qwen_tts_enabled; then
+    die "TOKKIO_TTS_PROCESSOR=QwenTTSService needs ${QWEN_TTS_SERVICE}, but TOKKIO_QWEN_TTS_ENABLED=${QWEN_TTS_ENABLED} stops this script from starting it. Set TOKKIO_QWEN_TTS_ENABLED=true (or leave it empty) in ${ENV_FILE}."
+  fi
+}
+
+warn_on_idle_english_tts() {
+  uses_english_tts_processor && return 0
+  systemctl is-active --quiet "${QWEN_TTS_SERVICE}" || return 0
+  warn "${QWEN_TTS_SERVICE} is active although TOKKIO_TTS_PROCESSOR=${TTS_PROCESSOR}; it keeps a model loaded on GPU1, which the renderer also uses. Stop it with: sudo systemctl stop ${QWEN_TTS_SERVICE}"
+}
+
+is_tts_synthesis_check_enabled() {
+  case "${TTS_SYNTHESIS_CHECK_ENABLED,,}" in
+    ""|0|false|no|off) return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
 is_rag_enabled() {
@@ -288,13 +394,45 @@ show_controller_status_line() {
 }
 
 check_endpoints() {
+  local tts_args=()
+
+  # The English backend has no prewarmed check phrase; show_qwen_tts_status covers its health.
+  if is_irodori_tts_enabled && ! uses_english_tts_processor; then
+    tts_args+=(--tts-base-url "${IRODORI_TTS_BASE_URL}")
+    is_tts_synthesis_check_enabled || tts_args+=(--tts-health-only)
+  fi
+
   info "python3 infra/tokkio/check_tokkio_endpoints.py --insecure --kubectl ..."
   python3 "${SCRIPT_DIR}/check_tokkio_endpoints.py" \
     --insecure \
     --kubectl \
     --ui-url "${UI_URL}" \
     --api-url "${API_URL}" \
-    --grafana-url "${GRAFANA_URL}"
+    --grafana-url "${GRAFANA_URL}" \
+    "${tts_args[@]}"
+}
+
+# Restored pods (tokkio-ingress, riva, triton, ...) come up after the controller, so
+# start/restart/reapply poll ui/api/grafana before the single-shot check in show_status.
+# TTS is left out here: with ElevenLabs every synthesis check is a billed request.
+wait_for_tokkio_endpoints() {
+  local attempt
+
+  for attempt in $(seq 1 "${ENDPOINT_WAIT_ATTEMPTS}"); do
+    if python3 "${SCRIPT_DIR}/check_tokkio_endpoints.py" \
+      --insecure \
+      --ui-url "${UI_URL}" \
+      --api-url "${API_URL}" \
+      --grafana-url "${GRAFANA_URL}" >/dev/null; then
+      info "Tokkio endpoints are ready: ${UI_URL} ${API_URL} ${GRAFANA_URL}"
+      return 0
+    fi
+    info "Waiting for Tokkio endpoints (${attempt}/${ENDPOINT_WAIT_ATTEMPTS})"
+    sleep "${ENDPOINT_WAIT_SECONDS}"
+  done
+
+  warn "Timed out waiting for Tokkio endpoints; the endpoint check below shows which one failed."
+  return 1
 }
 
 start_services() {
@@ -389,7 +527,10 @@ wait_for_app_workloads_to_stop() {
   local pod_count
 
   for attempt in $(seq 1 "${APP_WORKLOAD_WAIT_ATTEMPTS}"); do
-    if ! pod_table="$(kubectl get pods -n "${APP_NAMESPACE}" --no-headers 2>/dev/null)"; then
+    # Failed/Succeeded pods (old ReplicaSet leftovers in Error or
+    # ContainerStatusUnknown) never go away on scale-down; only count live ones.
+    if ! pod_table="$(kubectl get pods -n "${APP_NAMESPACE}" \
+      --field-selector=status.phase!=Succeeded,status.phase!=Failed --no-headers 2>/dev/null)"; then
       warn "Failed to query pods in namespace ${APP_NAMESPACE} while waiting for scale-down."
       return 1
     fi
@@ -405,7 +546,7 @@ wait_for_app_workloads_to_stop() {
   done
 
   warn "Timed out waiting for pods in namespace ${APP_NAMESPACE} to stop."
-  kubectl get pods -n "${APP_NAMESPACE}" || true
+  kubectl get pods -n "${APP_NAMESPACE}" --field-selector=status.phase!=Succeeded,status.phase!=Failed || true
   return 1
 }
 
@@ -492,14 +633,19 @@ stop_services() {
 }
 
 show_status() {
+  local rc=0
+
   show_service_status
   show_irodori_tts_status
+  show_qwen_tts_status
+  warn_on_idle_english_tts
   show_rag_status
   run_kubectl_get_pods || true
   show_controller_status_line
-  check_endpoints
+  check_endpoints || rc=1
   warn_on_problem_pods
   show_urls
+  return "${rc}"
 }
 
 ensure_controller_runtime_source_files() {
@@ -792,22 +938,35 @@ case "${COMMAND}" in
   start)
     [[ ${#POSITIONAL_ARGS[@]} -eq 0 ]] || die "start does not accept positional arguments"
     load_env
+    ensure_tts_lifecycle_matches_processor
     start_services
-    start_irodori_tts_service
-    wait_for_rag_health
+    start_rc=0
+    # A TTS or RAG failure must not leave the app workloads at zero replicas; report it at the end.
+    start_irodori_tts_service || start_rc=1
+    start_qwen_tts_service || start_rc=1
+    wait_for_rag_health || start_rc=1
     restore_app_workloads || true
     sync_controller_runtime_files
-    show_status
+    # show_status makes the final, strict check, so a timeout here is only reported.
+    wait_for_tokkio_endpoints || true
+    show_status || start_rc=1
+    [[ "${start_rc}" == "0" ]] || die "start finished with failures (TTS, RAG or endpoint checks); see the [WARN] lines and the endpoint check JSON (\"ok\": false) above."
     ;;
   stop)
     [[ ${#POSITIONAL_ARGS[@]} -eq 0 ]] || die "stop does not accept positional arguments"
     load_env
-    quiesce_app_workloads
+    # Keep going on a scale-down failure: stopping kubelet/containerd below stops
+    # the pods anyway, and the TTS services must not be left holding the GPU.
+    stop_rc=0
+    quiesce_app_workloads || stop_rc=1
     stop_irodori_tts_service
+    stop_qwen_tts_service
     stop_services
     show_service_status
     show_irodori_tts_status
+    show_qwen_tts_status
     show_urls
+    [[ "${stop_rc}" == "0" ]] || die "stop finished with failures; app workloads did not scale down cleanly (see the [WARN] lines above). TTS and host services were stopped anyway."
     ;;
   status)
     [[ ${#POSITIONAL_ARGS[@]} -eq 0 ]] || die "status does not accept positional arguments"
@@ -817,17 +976,23 @@ case "${COMMAND}" in
   restart)
     [[ ${#POSITIONAL_ARGS[@]} -eq 0 ]] || die "restart does not accept positional arguments"
     load_env
+    ensure_tts_lifecycle_matches_processor
     quiesce_app_workloads
     stop_irodori_tts_service
+    stop_qwen_tts_service
     stop_services
     info "Waiting 3 seconds before restart"
     sleep 3
     start_services
-    start_irodori_tts_service
-    wait_for_rag_health
+    start_rc=0
+    start_irodori_tts_service || start_rc=1
+    start_qwen_tts_service || start_rc=1
+    wait_for_rag_health || start_rc=1
     restore_app_workloads || true
     sync_controller_runtime_files
-    show_status
+    wait_for_tokkio_endpoints || true
+    show_status || start_rc=1
+    [[ "${start_rc}" == "0" ]] || die "restart finished with failures (TTS, RAG or endpoint checks); see the [WARN] lines and the endpoint check JSON (\"ok\": false) above."
     ;;
   reapply)
     [[ ${#POSITIONAL_ARGS[@]} -eq 0 ]] || die "reapply does not accept positional arguments"
@@ -836,7 +1001,8 @@ case "${COMMAND}" in
     info "Reapplying Tokkio deployment from ${ENV_FILE}"
     "${SCRIPT_DIR}/deploy_tokkio.sh" install --env-file "${ENV_FILE}"
     sync_controller_runtime_files
-    show_status
+    wait_for_tokkio_endpoints || true
+    show_status || die "reapply finished with failures (TTS or endpoint checks); see the [WARN] lines and the endpoint check JSON (\"ok\": false) above."
     ;;
   restart-controller)
     [[ ${#POSITIONAL_ARGS[@]} -eq 0 ]] || die "restart-controller does not accept positional arguments"
