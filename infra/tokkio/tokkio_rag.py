@@ -20,10 +20,18 @@ from nvidia_pipecat.frames.nvidia_rag import NvidiaRAGCitation, NvidiaRAGCitatio
 from nvidia_pipecat.services.nvidia_rag import NvidiaRAGService
 from nvidia_pipecat.utils.tracing import AttachmentStrategy, traceable, traced
 from openai.types.chat import ChatCompletionMessageParam
-from pipecat.frames.frames import ErrorFrame, TextFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    ErrorFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    TextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 
 from .local_rag import (
+    GENERIC_ROUTE_OUTSIDE_CORPUS_REASON,
+    OUTSIDE_CORPUS_PROMPT_NOTE,
     assess_local_rag_query,
     citations_for_hits,
     classify_query,
@@ -31,6 +39,7 @@ from .local_rag import (
     format_hits_for_prompt_with_sources,
     grounded_direct_reply,
     resolve_conversation_query,
+    route_needs_corpus_check,
     search_index,
     verify_index_bundle,
 )
@@ -69,8 +78,12 @@ async def _push_local_reply_if_available(service, chat_details: list[dict]) -> b
     logger.debug(f"RAG service selected local reply with {len(segments)} speech segment(s)")
     await service.start_ttfb_metrics()
     await service.stop_ttfb_metrics()
+    # The assistant context aggregator only records TextFrames received
+    # between LLMFullResponseStartFrame and LLMFullResponseEndFrame.
+    await service.push_frame(LLMFullResponseStartFrame())
     for segment in segments:
         await service.push_frame(TextFrame(segment))
+    await service.push_frame(LLMFullResponseEndFrame())
     return True
 
 
@@ -219,6 +232,7 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
             first_chunk_received = False
             full_response = ""
             filler_said = False
+            response_started = False
             speech_buffer = SpeechSegmentBuffer()
             ttfb_stopped = False
 
@@ -266,11 +280,17 @@ class TokkioNvidiaRAGService(NvidiaRAGService):
                         if not ttfb_stopped:
                             ttfb_stopped = True
                             await self.stop_ttfb_metrics()
+                            # Wrap streamed text so the assistant context aggregator records it.
+                            await self.push_frame(LLMFullResponseStartFrame())
+                            response_started = True
                         for segment in speech_buffer.feed(message):
                             await self.push_frame(TextFrame(segment))
                 for segment in speech_buffer.flush():
                     await self.push_frame(TextFrame(segment))
             finally:
+                if response_started:
+                    response_started = False
+                    await self.push_frame(LLMFullResponseEndFrame())
                 if not monitor_task.done():
                     monitor_task.cancel()
                 await resp.aclose()
@@ -343,7 +363,11 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         if start_metrics:
             await self.start_ttfb_metrics()
         await self.stop_ttfb_metrics()
+        # The assistant context aggregator only records TextFrames received
+        # between LLMFullResponseStartFrame and LLMFullResponseEndFrame.
+        await self.push_frame(LLMFullResponseStartFrame())
         await self.push_frame(TextFrame(GROUNDED_ANSWER_UNAVAILABLE_REPLY))
+        await self.push_frame(LLMFullResponseEndFrame())
 
     def _select_reranker_top_k(self, chat_details: list[dict]) -> int:
         return TokkioNvidiaRAGService._select_reranker_top_k(self, chat_details)
@@ -352,6 +376,11 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         return TokkioNvidiaRAGService._parse_rag_chunk(self, raw_chunk)
 
     def _should_use_rag(self, chat_details: list[dict]) -> bool:
+        return self._rag_route(chat_details) == "rag"
+
+    def _rag_route(self, chat_details: list[dict]) -> str:
+        """Return "rag", "direct", or "outside_corpus" for the latest user turn."""
+
         query = self._resolved_rag_query(chat_details)
         decision = classify_query(query, self.route_keywords)
         logger.debug(
@@ -361,7 +390,25 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
             decision.reason,
             decision.intents,
         )
-        return decision.route_candidate
+        if self.provider == "local" and route_needs_corpus_check(query, decision):
+            # Generic words such as 研究 or 受賞 also appear in general-knowledge questions.
+            # Route to the grounded path only when the Kagawa corpus mentions the asked topic.
+            try:
+                hits = search_index(
+                    Path(self.local_db_path),
+                    query,
+                    top_k=self.local_top_k,
+                    domain=decision.domain,
+                )
+                assessment = assess_local_rag_query(query, hits, self.route_keywords)
+            except Exception as exc:
+                # Let the grounded path hit the same failure inside its error handler.
+                logger.warning(f"RAG route corpus check failed, Error: {exc!r}")
+                return "rag"
+            if assessment.reason.startswith(GENERIC_ROUTE_OUTSIDE_CORPUS_REASON):
+                logger.info("RAG router selected direct LLM path: {}", assessment.reason)
+                return "outside_corpus"
+        return "rag" if decision.route_candidate else "direct"
 
     def _last_user_message(self, chat_details: list[dict]) -> str:
         for message in reversed(chat_details):
@@ -462,7 +509,11 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
             logger.info("Local RAG selected grounded direct reply for domain={}", assessment.domain)
             await self.start_ttfb_metrics()
             await self.stop_ttfb_metrics()
+            # The assistant context aggregator only records TextFrames received
+            # between LLMFullResponseStartFrame and LLMFullResponseEndFrame.
+            await self.push_frame(LLMFullResponseStartFrame())
             await self.push_frame(TextFrame(direct_reply))
+            await self.push_frame(LLMFullResponseEndFrame())
             return
         logger.debug(f"Local RAG selected {len(included_hits)} context chunks from {len(hits)} search hits")
         await super()._process_context(self._build_local_rag_context(context, prompt_context, query))
@@ -503,6 +554,7 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         first_chunk_received = False
         full_response = ""
         filler_said = False
+        response_started = False
         speech_buffer = SpeechSegmentBuffer()
         ttfb_stopped = False
 
@@ -549,11 +601,17 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
                             if not ttfb_stopped:
                                 ttfb_stopped = True
                                 await self.stop_ttfb_metrics()
+                                # Wrap streamed text so the assistant context aggregator records it.
+                                await self.push_frame(LLMFullResponseStartFrame())
+                                response_started = True
                             for segment in speech_buffer.feed(message):
                                 await self.push_frame(TextFrame(segment))
                     for segment in speech_buffer.flush():
                         await self.push_frame(TextFrame(segment))
         finally:
+            if response_started:
+                response_started = False
+                await self.push_frame(LLMFullResponseEndFrame())
             if not monitor_task.done():
                 monitor_task.cancel()
 
@@ -575,8 +633,17 @@ class TokkioNvidiaLLMRAGRouterService(TokkioNvidiaLLMService):
         if await _push_local_reply_if_available(self, chat_details):
             return
 
-        if not self._should_use_rag(chat_details):
+        route = self._rag_route(chat_details)
+        if route != "rag":
             logger.debug("RAG router selected direct LLM path")
+            if route == "outside_corpus":
+                # Tell the LLM the topic is not in the corpus so the persona prompt does not
+                # pull in Kagawa's own research or invent university facts.
+                context = self._build_local_rag_context(
+                    context,
+                    OUTSIDE_CORPUS_PROMPT_NOTE,
+                    self._resolved_rag_query(chat_details),
+                )
             await super()._process_context(context)
             return
 

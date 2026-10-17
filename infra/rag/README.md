@@ -150,10 +150,53 @@ the SEIRAN supercomputer.
 Short two-character Japanese terms such as `学費` use an exact lexical
 supplement because SQLite's trigram tokenizer cannot retrieve them reliably.
 Short contextual follow-ups such as `もう少し詳しく` inherit the most recent
-supported user topic. A routed query receives context only when the retrieved
-chunks pass domain, score, query-anchor, source-priority, and metadata checks.
-Unknown people, unmatched admission names, empty retrieval, and low-confidence
-results fall back to the normal LLM path.
+supported user topic.
+
+The domain decides which records are eligible; the query's content terms decide
+which eligible record answers. Content terms are what remains after removing
+scope words (`香川先生`, `東京工科大学`), routing vocabulary (`研究`, `入試`,
+`学部`), and question words: `量子コンピュータの研究について` keeps
+`量子コンピュータ`, `推薦入試はありますか` keeps `推薦入試`, and
+`香川先生の研究について` keeps nothing. A term matches a record when it splits
+into routing words and two-or-more-character pieces found in that record, so
+`推薦入試` matches `学校推薦型選抜`. ASCII terms match whole words only (`AI`
+never matches `detail`), and a few synonyms are fixed in code (`AI`/`人工知能`,
+`開学`/`創立`/`設立`, `出身地`/`生まれ`). Records that name the term in their
+title or opening text rank above records that only mention it.
+
+A routed query receives context only when the retrieved chunks pass domain,
+score, query-anchor, content-term, source-priority, and metadata checks. The
+content-term check fails only when none of the query's content terms appears in
+any included record, because visitors add framing that no record mentions.
+Speaker, family, time, and money paraphrases (`私`, `娘`, `今日`, `質問`,
+`値段`) and school grades (`高校2年生`) are not content terms. When a check
+fails:
+
+- Kagawa questions reached only through generic words (`研究`, `受賞`) with no
+  person anchor (`香川`, `学長`, `あなた`, `先生`) go to the normal LLM path;
+  the router decides this before entering the grounded path. Instead of
+  retrieved context the LLM receives `OUTSIDE_CORPUS_PROMPT_NOTE`: the topic is
+  not in the Kagawa/TEU material, answer from general knowledge without linking
+  it to Kagawa's research, and do not guess TEU-specific numbers. Without the
+  note, swallow-8b attributed quantum-computer cooling research to Kagawa.
+  Example: `量子コンピュータの研究について教えてください`.
+- Every other routed query (unknown people, unmatched admission names, empty
+  retrieval, missing content terms, low confidence) gets the fixed
+  `GROUNDED_ANSWER_UNAVAILABLE_REPLY` instead of an ungrounded LLM answer.
+  Example: `香川先生の趣味は何ですか`.
+
+The `university` domain (configured keyword `東京工科大学` without a narrower
+intent) covers every institutional record, including admissions, faculty,
+campus, SEIRAN, and university-news records, but not Kagawa's personal profile.
+
+Open-campus records whose listed dates are all past are tagged
+`event_status=ended` in the header and `【終了済み】このオープンキャンパスは終了済みです。`
+at the start of the body, with a policy line giving the evaluation date.
+swallow-8b ignored the header tag alone and announced the ended August dates
+as upcoming; the inline marker fixed that in live checks. A schedule question
+(`次のオープンキャンパスはいつですか`) with only ended events in the evidence
+gets a fixed reply naming the latest ended event and stating that the next date
+is not yet confirmed.
 
 Only domain-matching chunks actually included in the prompt emit structured
 citations through Tokkio's citation frame. Each citation has a unique
@@ -178,10 +221,14 @@ python3 infra/rag/evaluate_local_rag.py \
   --output infra/rag/evaluation_results/current.json
 ```
 
-The evaluation covers domain accuracy, context injection, expected top-k
-evidence, domain precision, citation-ID uniqueness, contextual follow-ups, and
-latency. It does not claim to evaluate hosted-LLM answer wording or browser/audio
-transport; run a live controller smoke after syncing for those layers.
+The evaluation uses the production route keywords
+(`DEFAULT_RAG_ROUTE_KEYWORDS` in `infra/tokkio/customize_tokkio_japanese.py`)
+and searches the routed domain, as the controller does. It covers domain
+accuracy, context injection, expected top-k evidence, domain precision,
+citation-ID uniqueness, contextual follow-ups, `must_not_inject` cases (routed
+questions whose topic the corpus lacks), and latency. It does not claim to
+evaluate hosted-LLM answer wording or browser/audio transport; run a live
+controller smoke after syncing for those layers.
 
 ## NVIDIA RAG Blueprint
 

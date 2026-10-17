@@ -786,7 +786,7 @@ def extract_query_terms(query: str) -> list[str]:
         terms.extend(["耐環境コーティング", "environmental barrier coating"])
     if "cmc" in compact.lower():
         terms.append("セラミック基複合材料")
-    if "東京工科大学" in compact and any(term in compact for term in ("概要", "特徴", "どんな大学")):
+    if "東京工科大学" in compact and any(term in compact for term in ("概要", "特徴", "特色", "強み", "魅力", "どんな大学")):
         terms.extend(["実学主義", "university_profile", "school_profile"])
     if "パンフレット" in compact or "大学案内" in compact:
         terms.extend(["pamphlet", "大学案内2027", "デジタルパンフレット"])
@@ -1011,6 +1011,9 @@ def _query_intents(query: str) -> set[str]:
         for term in (
             "概要",
             "特徴",
+            "特色",
+            "強み",
+            "魅力",
             "どんな大学",
             "教育方針",
             "学生支援",
@@ -1041,6 +1044,17 @@ def _query_locations(query: str) -> set[str]:
     return locations
 
 
+_INSTITUTIONAL_KAGAWA_RECORD_TYPES = {
+    "kagawa_cmc_center",
+    "kagawa_industry_academia",
+    "kagawa_international_exchange",
+    "kagawa_katayanagi_institute",
+    "kagawa_president_message",
+    "kagawa_regional_collaboration",
+    "kagawa_university_policy",
+}
+
+
 def _fields_match_domain(record_type: str, chunk_id: str, path: str, domain: str) -> bool:
     record_type = record_type.lower()
     chunk_id = chunk_id.lower()
@@ -1060,12 +1074,42 @@ def _fields_match_domain(record_type: str, chunk_id: str, path: str, domain: str
     if domain == "faculties":
         return record_type in {"faculty_profile", "graduate_profile"} or chunk_id == "chunk_school_hachioji_campus_overview"
     if domain == "university":
-        return record_type == "school_profile" and "university" in chunk_id
+        # Institutional questions (開学, 留学, 寮) are answered by admissions, faculty, campus,
+        # and university-news records too; Kagawa's personal records stay in the kagawa_* domains.
+        if not record_type or "todo" in record_type or "todo" in chunk_id:
+            return False
+        if record_type.startswith("kagawa_"):
+            return record_type in _INSTITUTIONAL_KAGAWA_RECORD_TYPES
+        return True
     if domain == "pamphlet":
         return record_type == "pamphlet" or "pamphlet" in chunk_id
     if domain == "seiran":
         return record_type.startswith("seiran_") or chunk_id.startswith("tut-seiran-")
     return False
+
+
+_EVENT_RECORD_TYPES = {"oc_event", "oc_program", "open_campus"}
+_ENDED_EVENT_MARKER = "【終了済み】"
+_EVENT_DATE_RE = re.compile(r"(20\d{2})(?:年|-)(\d{1,2})(?:月|-)(\d{1,2})日?")
+
+
+def _event_dates(text: str) -> list[date]:
+    dates = []
+    for year, month, day in _EVENT_DATE_RE.findall(text):
+        try:
+            dates.append(date(int(year), int(month), int(day)))
+        except ValueError:
+            continue
+    return dates
+
+
+def _event_has_ended(record_type: str, text: str, today: date) -> bool:
+    """True for an event record whose every listed date is already past."""
+
+    if record_type.lower() not in _EVENT_RECORD_TYPES:
+        return False
+    dates = _event_dates(text)
+    return bool(dates) and max(dates) < today
 
 
 def _intent_boost(row: sqlite3.Row, query: str) -> float:
@@ -1283,7 +1327,8 @@ def _intent_boost(row: sqlite3.Row, query: str) -> float:
         if record_type in {"oc_event", "open_campus"}:
             boost += 175
             if any(term in query for term in ("いつ", "次", "日程", "開催")):
-                boost += 80
+                # Schedule questions want upcoming events; ended ones only explain that none is listed.
+                boost += -60 if _event_has_ended(record_type, _row_text(row, "text"), date.today()) else 80
         elif record_type == "oc_program":
             boost += 115
         elif record_type == "spoken_answer" and "open_campus" in combined_meta:
@@ -1433,7 +1478,13 @@ def _temporal_boost(row: sqlite3.Row, query: str) -> float:
     return year_boost
 
 
-def _score_row(row: sqlite3.Row, query: str, terms: list[str], fts_score: float = 0.0) -> float:
+def _score_row(
+    row: sqlite3.Row,
+    query: str,
+    terms: list[str],
+    fts_score: float = 0.0,
+    content_terms: tuple[str, ...] = (),
+) -> float:
     path = str(row["path"]).lower()
     title = str(row["title"]).lower()
     section_title = _row_text(row, "section_title").lower()
@@ -1443,6 +1494,7 @@ def _score_row(row: sqlite3.Row, query: str, terms: list[str], fts_score: float 
     keywords = _row_text(row, "keywords").lower()
     text = str(row["text"]).lower()
     score = fts_score * 0.25 + _intent_boost(row, query) + _priority_boost(row) + _temporal_boost(row, query)
+    score += _content_relevance_boost(row, content_terms)
     for term in terms:
         needle = term.lower()
         if not needle:
@@ -1509,10 +1561,11 @@ def _dedupe_hits(
 
 def _rerank_rows(rows: Iterable[sqlite3.Row], query: str) -> list[LocalRagHit]:
     terms = extract_query_terms(query)
+    content_terms = query_content_terms(query)
     hits = []
     for row in rows:
         fts_score = float(row["score"]) if "score" in row.keys() else 0.0
-        score = _score_row(row, query, terms, fts_score)
+        score = _score_row(row, query, terms, fts_score, content_terms)
         if score > 0:
             hits.append(_row_hit(row, score))
     return hits
@@ -1716,6 +1769,246 @@ def _domain_from_intents(compact: str, intent_set: set[str]) -> str:
 
 
 _GENERIC_ROUTE_KEYWORDS = {"詳細", "詳しく", "根拠", "資料", "ドキュメント", "引用", "出典"}
+
+
+# Query content terms are what a question asks about beyond scope words (香川先生, 東京工科大学)
+# and the routing vocabulary that only selects a domain (研究, 入試, 学部). Domain boosts decide
+# which records are eligible; content terms decide which eligible record answers the question,
+# and whether the retrieved evidence mentions the asked-about thing at all.
+_SCOPE_ENTITY_TERMS = (
+    "香川豊先生",
+    "香川先生",
+    "香川さん",
+    "香川豊",
+    "香川",
+    "東京工科大学",
+    "工科大学",
+    "工科大",
+    "本学",
+    "学長",
+    "あなた",
+)
+_PERSON_SCOPE_TERMS = ("香川", "学長", "あなた", "先生")
+_INTENT_QUERY_TERMS = (
+    "アクセス", "行き方", "交通", "駅", "バス", "キャンパス", "八王子", "蒲田",
+    "入試", "受験", "選抜", "出願", "学費", "入学金", "授業料", "奨学金", "奨学生", "募集人員", "募集定員",
+    "指定2教科", "試験科目", "基礎学力試験", "選抜方法", "配点", "面接試験", "プレゼンテーション",
+    "合格発表", "受験票", "入学試験日", "試験日", "入学手続期限", "総合型選抜", "ao入試", "共通テスト",
+    "奨学生入試", "日程", "カレンダー", "スケジュール", "出願期間", "入試情報",
+    "オープンキャンパス", "説明会", "体験講義", "キャンパスツアー",
+    "学部", "学科", "専攻", "大学院", "研究科", "パンフレット", "大学案内", "入試案内", "デジタルパンフレット",
+    "スパコン", "スーパーコンピュータ", "青嵐", "seiran", "dgx", "b200", "dgxb200", "gpu", "ノード",
+    "top500", "hpcg", "順位", "ランキング", "rmax", "rpeak", "利用", "申請", "料金", "slurm", "ジョブ",
+    "キュー", "アカウント", "外部利用",
+    "概要", "特徴", "特色", "強み", "魅力", "教育方針", "学生支援", "実学主義", "施設",
+    "学歴", "卒業", "修了", "博士前期", "博士後期", "理学修士", "工学博士", "学位",
+    "経歴", "職歴", "略歴", "就任", "所属歴", "役職", "職名", "現職", "所属", "肩書", "プロフィール",
+    "年齢", "生年月日", "誕生日", "生まれ", "論文", "文献", "著書", "出版", "業績", "発表", "特許", "受賞", "賞",
+    "専門分野", "専門", "研究内容", "研究", "研究テーマ", "研究分野", "プロジェクト", "研究課題",
+    "ebc", "cmc", "sic/sic", "非破壊", "非破壊評価", "複合材料", "材料強度", "界面",
+)
+_GENERIC_QUERY_TERMS = (
+    "情報", "内容", "詳細", "一覧", "種類", "説明", "必要", "可能", "場合", "結果", "予定", "時期", "期間",
+    "場所", "現在", "最新", "今年", "来年", "今年度", "来年度", "具体的", "全体", "フォローアップ",
+    "大学", "先生", "教授", "学生", "方法", "根拠", "資料", "出典", "引用", "ドキュメント",
+    # Conversational framing from visitors: speaker, family, time, and money paraphrases.
+    "私", "僕", "自分", "娘", "息子", "子供", "子ども", "保護者", "親", "高校生", "中学生", "受験生",
+    "高校", "友達", "質問", "今日", "明日", "今週", "来週", "今月", "来月", "昨年", "去年",
+    "値段", "金額", "費用", "志望", "希望", "興味", "検討", "参加", "将来",
+)
+_CONTENT_TERM_SYNONYMS = {
+    "ai": ("人工知能",),
+    "人工知能": ("ai",),
+    "開学": ("創立", "設立"),
+    "創立": ("開学", "設立"),
+    "設立": ("開学", "創立"),
+    "出身地": ("生まれ", "出生地"),
+}
+_CONTENT_RUN_RE = re.compile(r"[一-龥々〆ヶァ-ヴーA-Za-z0-9・/+._-]+")
+_JAPANESE_CHAR_RE = re.compile(r"[ぁ-んァ-ヴ一-龥]")
+# A lone kanji is a noun (寮, 駅) when it stands between particles; next to other kana it is
+# a verb or adjective stem or suffix (教えて, 詳しく, 行き方) and carries no topic.
+_SINGLE_KANJI_NOUN_FOLLOWERS = frozenset("はがをにでのともへや")
+_SINGLE_KANJI_NOUN_PRECEDERS = frozenset("はがをにでのともへや、。,.!?！？ ")
+_CONTENT_STOP_RE = re.compile(
+    r"(?:19|20)\d{2}(?:年度|年)?"
+    r"|(?:高校|中学|大学)?\d+年生?"
+    r"|何(?:基|台|位|人|名|歳|年|時|分|回|個|件|日|月|割|倍|点|円|校)?"
+    r"|誰|幾つ"
+)
+_CONTENT_BOOST_WEIGHT = 150.0
+GENERIC_ROUTE_OUTSIDE_CORPUS_REASON = "generic_route_outside_corpus"
+# Sent instead of retrieved context when such a question goes to the plain LLM. Without it the
+# persona prompt led the LLM to invent links to Kagawa's research (verified against swallow-8b).
+OUTSIDE_CORPUS_PROMPT_NOTE = (
+    "参考情報: この質問の話題は、私（香川豊）や東京工科大学の資料には含まれていません。"
+    "一般的な知識として簡潔に答え、私の研究、経歴、所属組織と関係づけないでください。"
+    "東京工科大学についての数や固有の事実を聞かれている場合は推測せず、確認できないと答えてください。"
+)
+
+
+def _free_query_terms(route_keywords: Iterable[str] = ()) -> frozenset[str]:
+    vocabulary = {term.lower() for terms in _DOMAIN_ANCHORS.values() for term in terms}
+    vocabulary.update(term.lower() for term in _QUERY_ALIASES)
+    vocabulary.update(term.lower() for term in _INTENT_QUERY_TERMS)
+    vocabulary.update(term.lower() for term in _GENERIC_QUERY_TERMS)
+    vocabulary.update(term.lower() for term in _SCOPE_ENTITY_TERMS)
+    for keyword in route_keywords:
+        normalized = re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(keyword))).lower()
+        if normalized:
+            vocabulary.add(normalized)
+    return frozenset(vocabulary)
+
+
+_DEFAULT_FREE_QUERY_TERMS: frozenset[str] | None = None
+
+
+def _default_free_query_terms() -> frozenset[str]:
+    global _DEFAULT_FREE_QUERY_TERMS
+    if _DEFAULT_FREE_QUERY_TERMS is None:
+        _DEFAULT_FREE_QUERY_TERMS = _free_query_terms()
+    return _DEFAULT_FREE_QUERY_TERMS
+
+
+_ASCII_PIECE_RE = re.compile(r"[a-z0-9][a-z0-9/+._-]*")
+
+
+def _haystack_contains(haystack: str, piece: str) -> bool:
+    if _ASCII_PIECE_RE.fullmatch(piece):
+        # "ai" must not match inside "detail"; ASCII terms are matched as whole words.
+        return re.search(rf"(?<![a-z0-9]){re.escape(piece)}(?![a-z0-9])", haystack) is not None
+    return piece in haystack
+
+
+def _segment_term(term: str, haystack: str, free: frozenset[str]) -> bool:
+    """True when term splits into vocabulary words and 2+ char pieces found in haystack."""
+
+    if len(term) == 1:
+        return term in free or (bool(haystack) and term in haystack)
+    reachable = [False] * (len(term) + 1)
+    reachable[0] = True
+    for start in range(len(term)):
+        if not reachable[start]:
+            continue
+        for end in range(start + 1, len(term) + 1):
+            if reachable[end]:
+                continue
+            piece = term[start:end]
+            if piece in free or (end - start >= 2 and haystack and _haystack_contains(haystack, piece)):
+                reachable[end] = True
+    return reachable[-1]
+
+
+def query_content_terms(query: str, route_keywords: Iterable[str] = ()) -> tuple[str, ...]:
+    """Return the distinctive things a query asks about, lower-cased, without scope or routing words."""
+
+    route_keywords = tuple(route_keywords)
+    free = _free_query_terms(route_keywords) if route_keywords else _default_free_query_terms()
+    # Whitespace separates runs so ASCII words (NVIDIA B200) stay distinct terms.
+    compact = re.sub(r"\s+", " ", normalize_query(query)).lower()
+    if not _JAPANESE_CHAR_RE.search(compact):
+        # The corpus is Japanese; English wording cannot be matched lexically, so English
+        # questions keep the domain-only acceptance used before content terms existed.
+        return ()
+    compact = _CONTENT_STOP_RE.sub(" ", compact)
+    for entity in _SCOPE_ENTITY_TERMS:
+        compact = compact.replace(entity.lower(), " ")
+    terms: list[str] = []
+    for match in _CONTENT_RUN_RE.finditer(compact):
+        term = match.group(0).strip("・/+._-")
+        if len(term) == 1 and re.fullmatch(r"[一-龥]", term):
+            preceding = compact[match.start() - 1 : match.start()]
+            following = compact[match.end() : match.end() + 1]
+            if preceding and preceding not in _SINGLE_KANJI_NOUN_PRECEDERS:
+                continue
+            if following and following not in _SINGLE_KANJI_NOUN_FOLLOWERS:
+                continue
+        elif len(term) < 2:
+            continue
+        if term.isdigit() or term in terms:
+            continue
+        if _segment_term(term, "", free):
+            continue
+        terms.append(term)
+    return tuple(terms)
+
+
+def _content_term_covered(term: str, haystack: str, free: frozenset[str]) -> bool:
+    if _segment_term(term, haystack, free):
+        return True
+    # Synonyms such as 生まれ may also be routing words, so they must appear verbatim.
+    return any(_haystack_contains(haystack, synonym) for synonym in _CONTENT_TERM_SYNONYMS.get(term, ()))
+
+
+def _content_term_credit(term: str, haystack: str, free: frozenset[str]) -> float:
+    if _content_term_covered(term, haystack, free):
+        return 1.0
+    longest = 0
+    for start in range(len(term)):
+        for end in range(len(term), start + longest + 1, -1):
+            piece = term[start:end]
+            if piece not in free and _haystack_contains(haystack, piece):
+                longest = end - start
+                break
+    return 0.5 * longest / len(term)
+
+
+_CONTENT_LEAD_CHARS = 160
+
+
+def _content_relevance_boost(row: sqlite3.Row, content_terms: tuple[str, ...]) -> float:
+    """Reward records that mention the asked-about terms, most when the terms are their subject."""
+
+    if not content_terms:
+        return 0.0
+    titles = f"{_row_text(row, 'section_title')} {_row_text(row, 'source_title')}".lower()
+    text = _row_text(row, "text")
+    haystack = f"{titles} {_row_text(row, 'keywords')} {text}".lower()
+    # A continuation part (chunk_id ending in __part_NN) does not open its record.
+    is_continuation = re.search(r"__part_\d+$", _row_text(row, "chunk_id")) is not None
+    lead = "" if is_continuation else text[:_CONTENT_LEAD_CHARS].lower()
+    free = _default_free_query_terms()
+    credit = 0.0
+    for term in content_terms:
+        term_credit = _content_term_credit(term, haystack, free)
+        if term_credit == 1.0:
+            if _content_term_covered(term, titles, free):
+                term_credit += 0.5
+            elif _content_term_covered(term, lead, free):
+                term_credit += 0.25
+        credit += term_credit
+    return _CONTENT_BOOST_WEIGHT * credit / len(content_terms)
+
+
+def query_content_coverage(
+    query: str,
+    hits: Iterable[LocalRagHit],
+    route_keywords: Iterable[str] = (),
+) -> tuple[float, tuple[str, ...]]:
+    """Fraction of query content terms mentioned by the hits; 1.0 when the query has none."""
+
+    route_keywords = tuple(route_keywords)
+    content_terms = query_content_terms(query, route_keywords)
+    if not content_terms:
+        return 1.0, content_terms
+    free = _free_query_terms(route_keywords) if route_keywords else _default_free_query_terms()
+    # Each term must be covered within one record; pieces from different records do not add up.
+    haystacks = [
+        " ".join((hit.section_title, hit.source_title, hit.keywords, hit.text)).lower() for hit in hits
+    ]
+    covered = sum(
+        any(_content_term_covered(term, haystack, free) for haystack in haystacks) for term in content_terms
+    )
+    return covered / len(content_terms), content_terms
+
+
+def route_needs_corpus_check(query: str, route: QueryRouteDecision) -> bool:
+    """Kagawa routes reached only through generic words (研究, 受賞) must find their topic in the corpus."""
+
+    if not route.route_candidate or not route.domain.startswith("kagawa_"):
+        return False
+    compact = re.sub(r"\s+", "", normalize_query(query))
+    return not any(term in compact for term in _PERSON_SCOPE_TERMS)
 
 
 def _configured_route_domain(compact: str, route_keywords: Iterable[str]) -> tuple[str, str]:
@@ -1934,13 +2227,30 @@ def assess_local_rag_query(
     if anchors and not matched_anchors:
         return LocalRagAssessment(True, False, route.domain, 0.25, "query_anchor_not_found", route.intents)
 
-    domain_ratio = len(domain_hits) / len(hits)
+    # Reject only when no asked-about term appears: visitors add framing (娘が, 質問です)
+    # that no record mentions, but the topic term itself must be in the evidence.
+    content_ratio, content_terms = query_content_coverage(query, domain_hits, route_keywords)
+    if content_terms and content_ratio == 0.0:
+        reason = (
+            GENERIC_ROUTE_OUTSIDE_CORPUS_REASON
+            if route_needs_corpus_check(query, route)
+            else "query_content_not_found"
+        )
+        return LocalRagAssessment(
+            True,
+            False,
+            route.domain,
+            round(0.3 * content_ratio, 4),
+            f"{reason}:{','.join(content_terms)}",
+            route.intents,
+        )
+
     anchor_ratio = len(matched_anchors) / len(anchors) if anchors else 0.0
     priority_quality = 1.0 if any(hit.source_priority.upper() in {"P0", "P1"} for hit in domain_hits) else 0.0
     metadata_quality = 1.0 if any(hit.source_url and hit.chunk_id and hit.path for hit in domain_hits) else 0.0
     confidence = min(
         1.0,
-        0.45 + 0.25 * domain_ratio + 0.15 * anchor_ratio + 0.1 * priority_quality + 0.05 * metadata_quality,
+        0.45 + 0.25 * content_ratio + 0.15 * anchor_ratio + 0.1 * priority_quality + 0.05 * metadata_quality,
     )
     accepted = confidence >= 0.68
     reason = "accepted" if accepted else "confidence_below_threshold"
@@ -1975,17 +2285,22 @@ def grounded_direct_reply(
     if route.domain == "open_campus" and any(term in compact for term in ("次", "いつ", "日程", "開催")):
         reference_date = today or date.today()
         upcoming: list[tuple[date, str]] = []
+        ended: list[tuple[date, str]] = []
         for hit in hits:
             location = "八王子キャンパス" if "八王子" in hit.text else "蒲田キャンパス" if "蒲田" in hit.text else ""
             if not location:
                 continue
-            for year, month, day in re.findall(r"(20\d{2})年(\d{1,2})月(\d{1,2})日", hit.text):
-                try:
-                    event_date = date(int(year), int(month), int(day))
-                except ValueError:
-                    continue
+            for event_date in _event_dates(hit.text):
                 if event_date >= reference_date:
                     upcoming.append((event_date, location))
+                else:
+                    ended.append((event_date, location))
+        if not upcoming and ended:
+            last_date, last_location = max(ended)
+            day = f"{last_date.month}月{last_date.day}日"
+            if last_date.year != reference_date.year:
+                day = f"{last_date.year}年{day}"
+            return f"直近のオープンキャンパスは{day}の{last_location}で終了しており、次回の日程はまだ確認できません。"
         if upcoming:
             upcoming.sort()
             next_date, next_location = upcoming[0]
@@ -2157,7 +2472,7 @@ def _prompt_hits_for_query(hits: list[LocalRagHit], query: str) -> list[LocalRag
     return selected
 
 
-def _hit_header(index: int, hit: LocalRagHit) -> str:
+def _hit_header(index: int, hit: LocalRagHit, *, event_ended: bool = False) -> str:
     title = hit.source_title or hit.section_title or hit.title
     chunk_id = hit.chunk_id or f"{hit.path}:{hit.chunk_index}"
     metadata = [f"chunk_id={chunk_id}"]
@@ -2165,6 +2480,8 @@ def _hit_header(index: int, hit: LocalRagHit) -> str:
         metadata.append(f"effective_year={hit.effective_year}")
     if hit.temporal_status:
         metadata.append(f"temporal_status={hit.temporal_status}")
+    if event_ended:
+        metadata.append("event_status=ended")
     if hit.page_number:
         metadata.append(f"page={hit.page_number}")
     return f"[source {index}] {title} [{', '.join(metadata)}]"
@@ -2175,12 +2492,17 @@ def format_hits_for_prompt_with_sources(
     *,
     max_chars: int = DEFAULT_PROMPT_CONTEXT_CHARS,
     query: str = "",
+    today: date | None = None,
 ) -> tuple[str, list[LocalRagHit]]:
     if not hits:
         return "", []
     prompt_hits = _prompt_hits_for_query(hits, query)
     if not prompt_hits:
         return "", []
+    reference_date = today or date.today()
+    ended_events = {
+        id(hit) for hit in prompt_hits if _event_has_ended(hit.record_type, hit.text, reference_date)
+    }
     lines = [
         "参考情報（回答本文ではURL・ファイルパス・chunk_idを読み上げず、内容だけを自然に説明してください）:"
     ]
@@ -2198,13 +2520,22 @@ def format_hits_for_prompt_with_sources(
             "回答方針: 過年度・未確定・変更予定の参考情報に限り、"
             "その時点または不確実性を必要最小限の一文で示してください。"
         )
+    if ended_events:
+        lines.append(
+            f"注意: {_ENDED_EVENT_MARKER}の行事は{reference_date.isoformat()}時点で開催済みです。"
+            "日付を今後の予定として述べず、過去に行われた内容として説明し、"
+            "次回の日程はまだ確認できないと伝えてください。"
+        )
     used = sum(len(line) + 1 for line in lines)
     included_hits: list[LocalRagHit] = []
     for index, hit in enumerate(prompt_hits, start=1):
-        header = _hit_header(index, hit)
+        header = _hit_header(index, hit, event_ended=id(hit) in ended_events)
         body = _clean_prompt_body(hit.text, temporal_status=hit.temporal_status)
         if not body:
             continue
+        if id(hit) in ended_events:
+            # The header tag alone was ignored by swallow-8b; the marker must sit next to the dates.
+            body = f"{_ENDED_EVENT_MARKER}このオープンキャンパスは終了済みです。{body}"
         remaining = max_chars - used - len(header) - 8
         if remaining <= 0:
             break

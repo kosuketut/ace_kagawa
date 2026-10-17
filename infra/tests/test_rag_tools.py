@@ -1084,6 +1084,215 @@ class RagToolTests(unittest.TestCase):
             with self.assertRaisesRegex(local_rag.StaleIndexError, "fingerprint"):
                 local_rag.verify_index_freshness(corpus_dir, db_path)
 
+    def write_content_ranking_corpus(self, corpus_dir: Path) -> None:
+        def section(chunk_id: str, record_type: str, title: str, keywords: str, body: str) -> str:
+            return (
+                f"## {chunk_id}\n\n"
+                f"source_title: {title}\n"
+                "source_url: https://www.teu.ac.jp/example\n"
+                "source_priority: P0\n"
+                "temporal_status: current_2027\n"
+                f"record_type: {record_type}\n"
+                f"chunk_id: {chunk_id}\n"
+                f"keywords: {keywords}\n\n"
+                f"{body}\n\n"
+            )
+
+        (corpus_dir / "teu.md").write_text(
+            "# TEU\n\n"
+            + section(
+                "chunk_faculty_design",
+                "faculty_profile",
+                "デザイン学部",
+                "faculty_profile, design, detail",
+                "デザイン学部は、視覚デザインや空間デザインを学ぶ学部です。",
+            )
+            + section(
+                "chunk_faculty_bio",
+                "faculty_profile",
+                "応用生物学部",
+                "faculty_profile, bio, detail",
+                "応用生物学部は、生命医薬や食品を学ぶ学部です。",
+            )
+            + section(
+                "chunk_faculty_cs",
+                "faculty_profile",
+                "コンピュータサイエンス学部",
+                "faculty_profile, computer science",
+                "コンピュータサイエンス学部は、人工知能やデータサイエンスを学ぶ学部です。",
+            )
+            + section(
+                "chunk_admission_charter",
+                "admission",
+                "東京工科大学憲章",
+                "entrance, charter",
+                "東京工科大学は、1986年に実践的指導的技術者の育成を建学の理念として開学した大学である。",
+            )
+            + section(
+                "chunk_admission_fee",
+                "admission",
+                "入学検定料",
+                "entrance, fee",
+                "入学検定料は33,000円です。",
+            ),
+            encoding="utf-8",
+        )
+        self.write_kagawa_profile_corpus(corpus_dir)
+
+    def test_query_content_terms_drop_scope_routing_and_question_words(self) -> None:
+        local_rag = load_module("local_rag_content_terms_test", ROOT / "infra" / "rag" / "local_rag.py")
+
+        self.assertEqual(local_rag.query_content_terms("香川先生の研究について教えてください"), ())
+        self.assertEqual(local_rag.query_content_terms("2027年度の学費について教えてください"), ())
+        self.assertEqual(local_rag.query_content_terms("もう少し詳しく教えてください"), ())
+        self.assertEqual(
+            local_rag.query_content_terms("量子コンピュータの研究について教えてください"),
+            ("量子コンピュータ",),
+        )
+        self.assertEqual(local_rag.query_content_terms("研究室はいくつありますか"), ("研究室",))
+        self.assertEqual(local_rag.query_content_terms("推薦入試はありますか"), ("推薦入試",))
+        self.assertEqual(local_rag.query_content_terms("AIを学べる学部はありますか"), ("ai",))
+        self.assertEqual(local_rag.query_content_terms("東京工科大学に寮はありますか"), ("寮",))
+        self.assertEqual(local_rag.query_content_terms("NVIDIAのGPUは何基ですか"), ("nvidia",))
+        # English questions are not matched lexically against the Japanese corpus.
+        self.assertEqual(local_rag.query_content_terms("What is SEIRAN?"), ())
+        # Visitor framing (speaker, grade, politeness) and kana-bound kanji are not topics.
+        self.assertEqual(local_rag.query_content_terms("私は高校2年生ですが、オープンキャンパスはいつですか"), ())
+        self.assertEqual(local_rag.query_content_terms("質問です。入学金の値段はいくらですか"), ())
+        self.assertEqual(local_rag.query_content_terms("すみません、八王子キャンパスへの行き方を教えてください"), ())
+        self.assertEqual(
+            local_rag.query_content_terms("息子がコンピュータサイエンス学部を志望しています。入試について教えてください"),
+            ("コンピュータサイエンス学部",),
+        )
+
+    def test_content_terms_rank_records_within_a_domain(self) -> None:
+        local_rag = load_module("local_rag_content_rank_test", ROOT / "infra" / "rag" / "local_rag.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            corpus_dir = Path(tmp) / "corpus"
+            corpus_dir.mkdir()
+            self.write_content_ranking_corpus(corpus_dir)
+            db_path = Path(tmp) / "local_rag.sqlite"
+            local_rag.build_index(corpus_dir, db_path)
+
+            # "ai" matches 人工知能 by synonym, never the "ai" inside "detail".
+            ai_hits = local_rag.search_index(db_path, "AIを学べる学部はありますか", top_k=3)
+            self.assertEqual(ai_hits[0].chunk_id, "chunk_faculty_cs")
+
+            # Institutional questions also search admissions records, not only school_profile.
+            founding_query = "東京工科大学はいつ開学しましたか"
+            route = local_rag.classify_query(founding_query, ["東京工科大学"])
+            founding_hits = local_rag.search_index(db_path, founding_query, top_k=3, domain=route.domain)
+            self.assertEqual(route.domain, "university")
+            self.assertEqual(founding_hits[0].chunk_id, "chunk_admission_charter")
+            self.assertTrue(local_rag.assess_local_rag_query(founding_query, founding_hits, ["東京工科大学"]).accepted)
+
+    def test_confidence_rejects_retrieval_that_misses_the_asked_topic(self) -> None:
+        local_rag = load_module("local_rag_content_gate_test", ROOT / "infra" / "rag" / "local_rag.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            corpus_dir = Path(tmp) / "corpus"
+            corpus_dir.mkdir()
+            self.write_content_ranking_corpus(corpus_dir)
+            db_path = Path(tmp) / "local_rag.sqlite"
+            local_rag.build_index(corpus_dir, db_path)
+
+            def assess(query: str):
+                route = local_rag.classify_query(query, ["香川先生"])
+                hits = local_rag.search_index(db_path, query, top_k=3, domain=route.domain)
+                return route, local_rag.assess_local_rag_query(query, hits, ["香川先生"])
+
+            route, generic = assess("量子コンピュータの研究について教えてください")
+            self.assertEqual(route.domain, "kagawa_research")
+            self.assertTrue(local_rag.route_needs_corpus_check("量子コンピュータの研究について教えてください", route))
+            self.assertFalse(generic.accepted)
+            self.assertTrue(generic.reason.startswith(local_rag.GENERIC_ROUTE_OUTSIDE_CORPUS_REASON))
+
+            route, hobby = assess("香川先生の趣味は何ですか")
+            self.assertFalse(local_rag.route_needs_corpus_check("香川先生の趣味は何ですか", route))
+            self.assertFalse(hobby.accepted)
+            self.assertTrue(hobby.reason.startswith("query_content_not_found:"))
+
+            _route, research = assess("香川先生の研究について教えてください")
+            self.assertTrue(research.accepted)
+            # 出身地 is answered by "東京生まれ" through the synonym table.
+            _route, birthplace = assess("香川先生の出身地はどこですか")
+            self.assertTrue(birthplace.accepted)
+
+    def test_ended_open_campus_is_not_presented_as_upcoming(self) -> None:
+        local_rag = load_module("local_rag_ended_event_test", ROOT / "infra" / "rag" / "local_rag.py")
+        hits = [
+            local_rag.LocalRagHit(
+                path="oc.md",
+                title="Open Campus",
+                section_title="2026年8月 八王子キャンパス",
+                source_title="来場型 オープンキャンパス",
+                source_url="https://www.teu.ac.jp/entrance/open/index.html",
+                publisher="東京工科大学",
+                published_date="",
+                accessed_date="2026-07-29",
+                source_type="teu_official_html",
+                source_priority="P0",
+                record_type="oc_event",
+                chunk_id="chunk_oc_hachioji",
+                keywords="open_campus",
+                chunk_index=0,
+                text="八王子キャンパスでは2026年8月2日と2026年8月23日に開催予定です。",
+                score=900.0,
+                effective_year="2026",
+                temporal_status="current_2026",
+            ),
+            local_rag.LocalRagHit(
+                path="oc.md",
+                title="Open Campus",
+                section_title="oc_20260719_hachioji",
+                source_title="oc_20260719_hachioji",
+                source_url="https://www.teu.ac.jp/entrance/open/index.html",
+                publisher="東京工科大学",
+                published_date="",
+                accessed_date="2026-07-29",
+                source_type="teu_official_html",
+                source_priority="P0",
+                record_type="oc_event",
+                chunk_id="chunk_oc_20260719",
+                keywords="open_campus",
+                chunk_index=1,
+                text="2026-07-19の東京工科大学オープンキャンパスは八王子キャンパスで実施されます。",
+                score=600.0,
+            ),
+        ]
+
+        self.assertEqual(
+            local_rag.grounded_direct_reply("次のオープンキャンパスはいつですか", hits, today=date(2026, 10, 8)),
+            "直近のオープンキャンパスは8月23日の八王子キャンパスで終了しており、次回の日程はまだ確認できません。",
+        )
+        self.assertEqual(
+            local_rag.grounded_direct_reply("次のオープンキャンパスはいつですか", hits, today=date(2027, 1, 10)),
+            "直近のオープンキャンパスは2026年8月23日の八王子キャンパスで終了しており、次回の日程はまだ確認できません。",
+        )
+        self.assertEqual(
+            local_rag.grounded_direct_reply("次のオープンキャンパスはいつですか", hits, today=date(2026, 8, 10)),
+            "次回は8月23日の八王子キャンパスです。",
+        )
+
+        context, included = local_rag.format_hits_for_prompt_with_sources(
+            hits,
+            query="オープンキャンパスでは何ができますか",
+            today=date(2026, 10, 8),
+        )
+        self.assertEqual(len(included), 2)
+        self.assertIn("2026-10-08時点で開催済み", context)
+        self.assertEqual(context.count("event_status=ended"), 2)
+        # The marker sits right before each ended event's dates, where the LLM reads them.
+        self.assertIn("【終了済み】このオープンキャンパスは終了済みです。八王子キャンパスでは2026年8月2日", context)
+        self.assertEqual(context.count("このオープンキャンパスは終了済みです。"), 2)
+
+        upcoming_context, _ = local_rag.format_hits_for_prompt_with_sources(
+            hits[:1],
+            query="オープンキャンパスでは何ができますか",
+            today=date(2026, 8, 10),
+        )
+        self.assertNotIn("event_status=ended", upcoming_context)
+        self.assertNotIn("終了済み", upcoming_context)
+
 
 if __name__ == "__main__":
     unittest.main()
