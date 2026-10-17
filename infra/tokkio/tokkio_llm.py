@@ -10,15 +10,24 @@ import time
 
 from loguru import logger
 from nvidia_pipecat.services.nvidia_llm import NvidiaLLMService
-from pipecat.frames.frames import TextFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    TextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.services.openai.llm import OpenAILLMService
 
 
-_STRIP_CHARS_RE = re.compile(r"[\s　。、．，,！？!?？!…・「」『』（）()\[\]【】]+")
+_STRIP_CHARS_RE = re.compile(r"[\s　。、．.，,！？!?？!…・「」『』（）()\[\]【】]+")
 _SENTENCE_END_CHARS = "。.!?！？"
 _SOFT_BREAK_CHARS = "、，,;； "
-_NEMOTRON_ULTRA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+_CLOSING_BRACKET_CHARS = "」』）)】〉》］]”\""
+_NEMOTRON_MODELS_WITH_THINKING = (
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+)
 _DEFAULT_FIRST_RESPONSE_TIMEOUT_S = 20.0
 _LLM_RESOURCE_RETRY_DELAY_S = 0.75
 _LLM_TIMEOUT_REPLY = "回答サービスの応答に時間がかかっています。少し待ってから、もう一度お尋ねください。"
@@ -26,6 +35,29 @@ _LLM_ERROR_REPLY = "回答サービスへ接続できません。少し待って
 _LLM_BUSY_REPLY = "回答サービスが混み合っています。少し待ってから、もう一度お尋ねください。"
 _SPEECH_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _SPEECH_HEADING_RE = re.compile(r"(^|\s+)\*\*([^*\n]{1,40})\*\*(?=\s*(?:[*+]|$))")
+# "→" / "⇒" are read as a pause instead of being deleted ("A→B" must not become "AB").
+_SPEECH_ARROW_RE = re.compile(r"\s*[→⇒]\s*")
+# Emoji / pictographs / dingbats / decorative symbols that must never be spoken.
+# ○ (U+25CB) and ◯ (U+25EF) are kept: they stand for "maru" and for placeholders.
+# ▲ (U+25B2) is left to _SPEECH_DECORATIVE_TRIANGLE_RE: before a digit it is a
+# minus sign (▲5% = マイナス5%) that the TTS server reads.
+_SPEECH_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\u2600-\u27bf\u2b00-\u2bff\ufe0f\ufe0e"
+    "\u2190-\u21ff\u2300-\u23ff\u25a0-\u25b1\u25b3-\u25ca\u25cc-\u25ee\u25f0-\u25ff"
+    "\u00a9\u00ae\u2122\u3030\u303d\u3297\u3299]"
+)
+_SPEECH_DECORATIVE_TRIANGLE_RE = re.compile(r"▲(?!\d)")
+# Meta-instruction echoes like （100文字以内、2文） leaked from the system prompt.
+# A bare 以内 is not enough: （徒歩10分以内） is real content.  A character count
+# is removed only on its own (（約58文字）) or in the prompt's constraint shapes;
+# （半角英数字8文字） and （最大20文字） are content.
+_SPEECH_META_NOTE_RE = re.compile(
+    r"[（(]\s*(?:約|全角|計|合計)?\s*\d+\s*文字\s*(?:程度|前後|くらい)?\s*[）)]"
+    r"|[（(][^（）()]{0,40}?"
+    r"(?:\d+\s*(?:から|〜|～|~|-)\s*\d+\s*文字|\d+\s*文字(?:以内|まで|程度|で|に)|文字(?:以内|程度|で|に)"
+    r"|\d+\s*文(?![字書献化学章庫])(?:まで|で|以内)?)"
+    r"(?!以上|以下|未満)[^（）()]{0,20}?[）)]"
+)
 _KAGAWA_BIRTH_DATE = date(1952, 9, 19)
 
 OPEN_CAMPUS_GREETING_SCRIPT = (
@@ -55,6 +87,48 @@ OPEN_CAMPUS_CLOSING_SCRIPT = (
     "今日は一日、楽しんでいってください。",
 )
 
+SYMPOSIUM_OPENING_SCRIPT = (
+    "Good afternoon, everyone.",
+    "Centuries ago, the poet Saigyo wrote of a blue gale blowing through Hachioji, the City of Mulberries.",
+    "Inspired by this poem, we named our supercomputer Seiran, the Blue Gale.",
+    "Today, a new wind of knowledge is rising from Hachioji.",
+    "Welcome to the Commemorative Symposium celebrating the establishment of the Tokyo University of Technology and NVIDIA AI Technology Center Joint Lab.",
+    "Please enjoy the symposium, along with the rich history and culture of Hachioji.",
+    "And now, please welcome Professor Kagawa, the President of the Tokyo University of Technology.",
+)
+
+_SYMPOSIUM_OPENING_EXACT_CUES = {
+    "シンポジウムのオープニングをお願いします",
+    "シンポジウムの開会挨拶をお願いします",
+    "シンポジウムの台本を読んでください",
+    "readthesymposiumopening",
+    "pleasereadthesymposiumopening",
+    "start",
+}
+# Cue patterns must match the whole normalized utterance.  Substring matching
+# fired the scripts on questions such as "What time does the symposium start?"
+# or "シンポジウムの説明をお願いします".  Only a short, known lead-in and
+# ASR/IME spelling variants are allowed around the whitelisted nouns.
+_CUE_REQUEST = (
+    r"(?:を?(?:お願い|おねがい)(?:します|いたします|致します)?"
+    r"|を?(?:読んで|よんで|話して|始めて)(?:ください|下さい)?)"
+)
+_CUE_LEAD_IN = r"(?:(?:それ)?では|じゃあ|はい|香川(?:先生|学長)|学長|先生)?"
+# 最後に is a closing lead-in only: "最後にご挨拶" must not pick the greeting.
+_CLOSING_CUE_LEAD_IN = r"(?:(?:それ)?では|じゃあ|はい|最後に|香川(?:先生|学長)|学長|先生)?"
+_CUE_GREETING_NOUN = r"(?:ご|御)?(?:挨拶|あいさつ)"
+# Fillers that ASR leaves around a cue ("えー、…お願いします。えー").
+_CUE_TRAILING_FILLER_RE = re.compile(r"(?:えー|あー|えっと)+$")
+_CUE_LEADING_FILLER_RE = re.compile(r"^(?:えー+|あー+|えっと|あのー*)+")
+_SYMPOSIUM_OPENING_CUE_RE = re.compile(
+    rf"{_CUE_LEAD_IN}シンポジウムの(?:オープニング|開会挨拶|開会の挨拶|台本){_CUE_REQUEST}"
+    r"|(?:okay|ok|so|now|let's|lets)?(?:please)?(?:read|start|begin)(?:the)?symposium(?:opening)?(?:please)?"
+)
+_OPERATOR_STOP_CUE_RE = re.compile(
+    r"(?:ok(?:ay)?|please)?stop(?:it|please|now|speaking|talking|stop)*"
+    r"|(?:ちょっと)?(?:(?:ストップ)+(?:して)?|[止と]めて|停止(?:して)?)(?:ください)?"
+)
+
 _OPEN_CAMPUS_GREETING_EXACT_CUES = {
     "挨拶をお願いします",
     "ご挨拶をお願いします",
@@ -62,21 +136,9 @@ _OPEN_CAMPUS_GREETING_EXACT_CUES = {
     "台本をお願いします",
     "台本を読んでください",
 }
-_OPEN_CAMPUS_GREETING_CUE_TOPICS = (
-    "オープンキャンパス",
-    "八王子キャンパス",
-    "学長挨拶",
-    "学長の挨拶",
-    "学長のご挨拶",
-    "オープニング",
-    "台本",
-    "スピーチ",
-)
-_OPEN_CAMPUS_GREETING_CUE_ACTIONS = (
-    "お願いします",
-    "読んで",
-    "話して",
-    "始めて",
+_OPEN_CAMPUS_GREETING_CUE_RE = re.compile(
+    rf"{_CUE_LEAD_IN}(?:(?:オープンキャンパス|八王子キャンパス)の)?"
+    rf"(?:学長の?{_CUE_GREETING_NOUN}|{_CUE_GREETING_NOUN}|オープニング|台本|スピーチ){_CUE_REQUEST}"
 )
 
 _OPEN_CAMPUS_CLOSING_EXACT_CUES = {
@@ -86,17 +148,9 @@ _OPEN_CAMPUS_CLOSING_EXACT_CUES = {
     "最後の挨拶をお願いします",
     "締めの台本を読んでください",
 }
-_OPEN_CAMPUS_CLOSING_CUE_TOPICS = (
-    "締め",
-    "クロージング",
-    "最後の挨拶",
-    "最後のご挨拶",
-)
-_OPEN_CAMPUS_CLOSING_CUE_ACTIONS = (
-    "お願いします",
-    "読んで",
-    "話して",
-    "始めて",
+_OPEN_CAMPUS_CLOSING_CUE_RE = re.compile(
+    rf"{_CLOSING_CUE_LEAD_IN}(?:オープンキャンパスの)?"
+    rf"(?:締め(?:の(?:言葉|{_CUE_GREETING_NOUN}|台本))?|クロージング|最後の{_CUE_GREETING_NOUN}){_CUE_REQUEST}"
 )
 
 _GREETING_REPLIES = {
@@ -146,7 +200,7 @@ _FAST_REPLY_EXCLUDED_TERMS = (
 
 def nvidia_model_input_params(model: str) -> dict[str, object]:
     """Return stable realtime-chat parameters for model-specific NIM behavior."""
-    if model.strip() != _NEMOTRON_ULTRA_MODEL:
+    if model.strip() not in _NEMOTRON_MODELS_WITH_THINKING:
         return {}
     return {
         "temperature": 0.0,
@@ -239,14 +293,20 @@ def _is_kagawa_age_question(normalized: str) -> bool:
     }
 
 
+def _is_symposium_opening_cue(normalized: str) -> bool:
+    if len(normalized) > 100:
+        return False
+    if normalized in _SYMPOSIUM_OPENING_EXACT_CUES:
+        return True
+    return _SYMPOSIUM_OPENING_CUE_RE.fullmatch(normalized) is not None
+
+
 def _is_open_campus_greeting_cue(normalized: str) -> bool:
     if len(normalized) > 80:
         return False
     if normalized in _OPEN_CAMPUS_GREETING_EXACT_CUES:
         return True
-    return any(topic in normalized for topic in _OPEN_CAMPUS_GREETING_CUE_TOPICS) and any(
-        action in normalized for action in _OPEN_CAMPUS_GREETING_CUE_ACTIONS
-    )
+    return _OPEN_CAMPUS_GREETING_CUE_RE.fullmatch(normalized) is not None
 
 
 def _is_open_campus_closing_cue(normalized: str) -> bool:
@@ -254,16 +314,21 @@ def _is_open_campus_closing_cue(normalized: str) -> bool:
         return False
     if normalized in _OPEN_CAMPUS_CLOSING_EXACT_CUES:
         return True
-    return any(topic in normalized for topic in _OPEN_CAMPUS_CLOSING_CUE_TOPICS) and any(
-        action in normalized for action in _OPEN_CAMPUS_CLOSING_CUE_ACTIONS
-    )
+    return _OPEN_CAMPUS_CLOSING_CUE_RE.fullmatch(normalized) is not None
+
+
+def _is_operator_stop_cue(normalized: str) -> bool:
+    return _OPERATOR_STOP_CUE_RE.fullmatch(normalized) is not None
 
 
 def get_scripted_speech_reply(messages: list[dict]) -> tuple[str, ...] | None:
     """Return a deterministic multi-segment speech for an explicit operator cue."""
     normalized = _normalize_short_utterance(_latest_user_text(messages))
+    normalized = _CUE_LEADING_FILLER_RE.sub("", _CUE_TRAILING_FILLER_RE.sub("", normalized))
     if not normalized:
         return None
+    if _is_symposium_opening_cue(normalized):
+        return SYMPOSIUM_OPENING_SCRIPT
     if _is_open_campus_closing_cue(normalized):
         return OPEN_CAMPUS_CLOSING_SCRIPT
     if not _is_open_campus_greeting_cue(normalized):
@@ -299,20 +364,31 @@ def normalize_speech_segment(text: str) -> str:
     """Convert streamed Markdown-like prose into stable spoken sentences."""
 
     normalized = _SPEECH_MARKDOWN_LINK_RE.sub(r"\1", text)
+    normalized = _SPEECH_META_NOTE_RE.sub("", normalized)
+    normalized = re.sub(r"\.{2,}", "…", normalized)
+    normalized = _SPEECH_ARROW_RE.sub("、", normalized)
+    normalized = _SPEECH_EMOJI_RE.sub("", normalized)
+    normalized = _SPEECH_DECORATIVE_TRIANGLE_RE.sub("", normalized)
     normalized = _SPEECH_HEADING_RE.sub(
         lambda match: f"{'。' if match.start() else ''}{match.group(2)}。",
         normalized,
     )
     normalized = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", normalized)
-    normalized = re.sub(r"(?m)^\s*[-*+]\s*", "", normalized)
+    # A sign before a digit is not a bullet: "-40℃" is read as マイナス.
+    normalized = re.sub(r"(?m)^\s*[-*+](?!\d)\s*", "", normalized)
     normalized = re.sub(r"(?:\*\*|__|~~|`)", "", normalized)
-    normalized = re.sub(r"\s+[*+]\s*", "。", normalized)
+    normalized = re.sub(r"\s+\+\s+", "プラス", normalized)
+    normalized = re.sub(r"\s+\*\s*", "。", normalized)
     normalized = re.sub(r"[\r\n]+", "。", normalized)
     normalized = normalized.replace("•", "。").replace("◦", "。").replace("*", "。")
     normalized = re.sub(r"\s+", " ", normalized)
     normalized = re.sub(r"。(?:\s*。)+", "。", normalized)
     normalized = re.sub(r"\s*。\s*", "。", normalized)
     return normalized.strip(" 。") + ("。" if normalized.strip(" 。") and normalized.rstrip().endswith("。") else "")
+
+
+def _is_ascii_alnum(value: str) -> bool:
+    return value.isascii() and value.isalnum()
 
 
 class SpeechSegmentBuffer:
@@ -339,12 +415,26 @@ class SpeechSegmentBuffer:
         self._buffer = ""
         return [segment] if segment else []
 
+    def flush_complete(self) -> list[str]:
+        """Emit a held complete sentence; drop an unfinished fragment."""
+        if self._buffer.rstrip().rstrip(_CLOSING_BRACKET_CHARS).endswith(tuple(_SENTENCE_END_CHARS)):
+            return self.flush()
+        self._buffer = ""
+        return []
+
     def _pop_ready_segments(self) -> list[str]:
         segments: list[str] = []
         while self._buffer:
             sentence_index = self._first_sentence_end_index()
             if sentence_index is not None:
-                segment = self._take(sentence_index + 1)
+                end_index = sentence_index + 1
+                while end_index < len(self._buffer) and self._buffer[end_index] in _CLOSING_BRACKET_CHARS:
+                    end_index += 1
+                if end_index == len(self._buffer):
+                    # The next delta may still close a bracket (「…です。」と) or
+                    # bring the space that separates two words.
+                    break
+                segment = self._take(end_index)
                 if segment:
                     segments.append(segment)
                 continue
@@ -367,17 +457,47 @@ class SpeechSegmentBuffer:
         return segments
 
     def _first_sentence_end_index(self) -> int | None:
-        indexes = [self._buffer.find(char) for char in _SENTENCE_END_CHARS]
-        indexes = [index for index in indexes if index >= 0]
-        return min(indexes) if indexes else None
+        for index, char in enumerate(self._buffer):
+            if char in _SENTENCE_END_CHARS and not self._is_inside_token(index):
+                return index
+        return None
 
     def _last_soft_break_index(self, max_chars: int) -> int | None:
         search_text = self._buffer[:max_chars]
-        indexes = [search_text.rfind(char) for char in _SOFT_BREAK_CHARS]
-        indexes = [index for index in indexes if index + 1 >= self._min_segment_chars]
+        indexes = [
+            index
+            for index, char in enumerate(search_text)
+            if char in _SOFT_BREAK_CHARS
+            and index + 1 >= self._min_segment_chars
+            and not self._is_inside_token(index)
+            # Only the next delta shows whether a space follows an ASCII comma.
+            and not (char in ",;" and index + 1 == len(self._buffer))
+        ]
         return max(indexes) if indexes else None
 
+    def _is_inside_token(self, index: int) -> bool:
+        """Keep "1.5", "250,000", "v4.1" and "..." in one segment.
+
+        A "." after an ASCII letter/digit, or a "," after a digit, is only a
+        boundary once the next delta shows it is not followed by the same kind
+        of character; splitting "1." / "5倍" makes TTS read "いち。ごばい".
+        A run of dots is an ellipsis, never a sentence end.
+        """
+        char = self._buffer[index]
+        if char == "." and "." in (self._buffer[index - 1 : index], self._buffer[index + 1 : index + 2]):
+            return True
+        if index == 0 or char not in ".,，":
+            return False
+        joins = _is_ascii_alnum if char == "." else str.isdigit
+        following = self._buffer[index + 1 : index + 2]
+        return joins(self._buffer[index - 1]) and (not following or joins(following))
+
     def _take(self, end_index: int) -> str:
+        # pipecat's sentence aggregator joins segments with no separator, so the
+        # space consumed by this cut must stay on the segment ("of Technology").
+        cut_at_space = (
+            self._buffer[end_index - 1 : end_index].isspace() or self._buffer[end_index : end_index + 1].isspace()
+        )
         raw_segment = self._buffer[:end_index].strip()
         self._buffer = self._buffer[end_index:].lstrip()
         segment = normalize_speech_segment(raw_segment)
@@ -385,6 +505,11 @@ class SpeechSegmentBuffer:
             segment += "。"
         if segment and not any(char not in _SENTENCE_END_CHARS for char in segment):
             return ""
+        # Either side may be the English word: "campus — and", "students’ research".
+        if cut_at_space and segment and (
+            segment[-1].isascii() or not self._buffer or _is_ascii_alnum(self._buffer[0])
+        ):
+            segment += " "
         return segment
 
 
@@ -411,7 +536,11 @@ class TokkioLLMServiceMixin:
     @staticmethod
     def _is_retryable_resource_error(exc: Exception) -> bool:
         message = str(exc).lower()
-        return "resourceexhausted" in message or "request limit reached" in message
+        return (
+            "resourceexhausted" in message
+            or "request limit reached" in message
+            or "temporarily overloaded" in message
+        )
 
     async def _open_stream_and_read_first_text_with_retry(self, context, stream_chat_completions):
         try:
@@ -428,6 +557,12 @@ class TokkioLLMServiceMixin:
 
     async def _push_local_reply_if_available(self, context: OpenAILLMContext) -> bool:
         messages = context.get_messages()
+        if _is_operator_stop_cue(_normalize_short_utterance(_latest_user_text(messages))):
+            logger.debug("Tokkio handled operator stop cue without a spoken reply")
+            await self.start_ttfb_metrics()
+            await self.stop_ttfb_metrics()
+            return True
+
         scripted_reply = get_scripted_speech_reply(messages)
         profile_reply = get_fast_profile_reply(messages) if not scripted_reply else None
         segments = scripted_reply or ((profile_reply,) if profile_reply else ())
@@ -437,8 +572,12 @@ class TokkioLLMServiceMixin:
         logger.debug(f"Tokkio selected local reply with {len(segments)} speech segment(s)")
         await self.start_ttfb_metrics()
         await self.stop_ttfb_metrics()
+        # The assistant context aggregator only records TextFrames received
+        # between LLMFullResponseStartFrame and LLMFullResponseEndFrame.
+        await self.push_frame(LLMFullResponseStartFrame())
         for segment in segments:
             await self.push_frame(TextFrame(segment))
+        await self.push_frame(LLMFullResponseEndFrame())
         return True
 
     async def _process_context_common(self, context: OpenAILLMContext, stream_chat_completions):
@@ -450,6 +589,7 @@ class TokkioLLMServiceMixin:
 
         first_chunk_received = False
         filler_said = False
+        response_started = False
         start_time = time.time()
 
         async def monitor_request_time():
@@ -482,6 +622,9 @@ class TokkioLLMServiceMixin:
 
             await self.stop_ttfb_metrics()
             ttfb_stopped = True
+            # Wrap streamed text so the assistant context aggregator records it.
+            await self.push_frame(LLMFullResponseStartFrame())
+            response_started = True
             for segment in speech_buffer.feed(first_text_delta):
                 await self.push_frame(TextFrame(segment))
 
@@ -492,6 +635,8 @@ class TokkioLLMServiceMixin:
                         await self.push_frame(TextFrame(segment))
             for segment in speech_buffer.flush():
                 await self.push_frame(TextFrame(segment))
+            await self.push_frame(LLMFullResponseEndFrame())
+            response_started = False
         except asyncio.TimeoutError:
             logger.warning(
                 f"LLM endpoint did not return response text within {self.first_response_timeout_s} seconds"
@@ -501,10 +646,18 @@ class TokkioLLMServiceMixin:
         except Exception as e:
             logger.error(f"An error occurred in http request to LLM endpoint, Error: {e}")
             await self.stop_ttfb_metrics()
+            if response_started:
+                # The buffer holds a finished sentence until the next delta.
+                # Not in finally: after a barge-in that text is stale.
+                for segment in speech_buffer.flush_complete():
+                    await self.push_frame(TextFrame(segment))
             reply = _LLM_BUSY_REPLY if self._is_retryable_resource_error(e) else _LLM_ERROR_REPLY
             await self.push_frame(TTSSpeakFrame(reply))
 
         finally:
+            if response_started:
+                response_started = False
+                await self.push_frame(LLMFullResponseEndFrame())
             if not monitor_task.done():
                 monitor_task.cancel()
                 try:

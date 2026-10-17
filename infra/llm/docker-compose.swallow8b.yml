@@ -1,0 +1,28 @@
+services:
+  vllm-llama31-swallow-8b:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+    container_name: ${VLLM_CONTAINER_NAME:-ace-vllm-llama31-swallow-8b}
+    restart: unless-stopped
+    runtime: nvidia
+    shm_size: "16gb"
+    ipc: host
+    network_mode: host
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${VLLM_GPU_DEVICES:-0}
+      OMP_NUM_THREADS: "8"
+    volumes:
+      - /data/ACE/models:/data/ACE/models
+    command:
+      - --model
+      - /data/ACE/models/Llama-3.1-Swallow-8B-Instruct-v0.5
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${VLLM_PORT:-8011}
+      - --served-model-name
+      - ${VLLM_SERVED_MODEL_NAME:-llama-3.1-swallow-8b-instruct-v0.5}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEM_UTIL:-0.55}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-16384}
+      - --disable-log-requests

@@ -17,17 +17,40 @@ Environment=IRODORI_TTS_PORT=8021
 Environment=IRODORI_TTS_VOICE=kagawa
 Environment=IRODORI_TTS_MODEL_DEVICE=cuda:0
 Environment=IRODORI_TTS_CODEC_DEVICE=cuda:0
+Environment=IRODORI_TTS_HF_CHECKPOINT=Aratako/Irodori-TTS-v4.1-Small
 Environment=IRODORI_TTS_MODEL_PRECISION=bf16
-Environment=IRODORI_TTS_NUM_STEPS=40
 Environment=IRODORI_TTS_DURATION_SCALE=1.0
+Environment=IRODORI_TTS_SHORT_DURATION_MAX_CHARS=16
+Environment=IRODORI_TTS_SHORT_DURATION_SCALE=1.0
+Environment=IRODORI_TTS_DURATION_CAP_BASE_SECONDS=0.7
+Environment=IRODORI_TTS_DURATION_CAP_MORA_PER_SECOND=6.0
+Environment=IRODORI_TTS_TRIM_ENABLED=true
+Environment=IRODORI_TTS_TRIM_LEAD_MS=60
+Environment=IRODORI_TTS_SENTENCE_TRAIL_MS=300
+Environment=IRODORI_TTS_CLAUSE_TRAIL_MS=120
+Environment=IRODORI_TTS_FADE_MS=10
+Environment=IRODORI_TTS_OUTPUT_GAIN_DB=-0.5
 Environment=IRODORI_TTS_SHORT_CACHE_ENABLED=true
 Environment=IRODORI_TTS_SHORT_CACHE_MAX_CHARS=40
 Environment=IRODORI_TTS_SHORT_CACHE_MAX_ENTRIES=128
 Environment="IRODORI_TTS_SHORT_CACHE_PREWARM_TEXTS=こんにちは。ご用件をどうぞ。|確認しています|どういたしまして。|ありがとうございました。"
-Environment=IRODORI_TTS_SHORT_CACHE_PREWARM_NUM_STEPS=40
 Environment=IRODORI_TTS_REFERENCE_SOURCE=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS/data/kagawa_voice.m4a
 Environment=IRODORI_TTS_REFERENCE_WAV=/data/ACE/irodori/reference/kagawa_voice_ref_48k_mono.wav
 Environment=CUDA_VISIBLE_DEVICES=0
+# speech.cpp (Vulkan) synthesis, chosen on 2026-10-16: ~1.7x faster and 2.2 GiB instead of 6.4 GiB,
+# no watermark. IRODORI_TTS_BACKEND=python returns to the PyTorch runtime above.
+Environment=IRODORI_TTS_BACKEND=speechcpp
+Environment=IRODORI_TTS_SPEECHCPP_BIN=/data/ACE/speech-cpp/runtime/v0.8.7/speech
+Environment=IRODORI_TTS_SPEECHCPP_MODEL=/data/ACE/speech-cpp/models/Irodori-TTS-859M-v4.1-F16.gguf
+Environment=IRODORI_TTS_SPEECHCPP_VOICE=/data/ACE/irodori/speech-cpp/kagawa_voice_ref_48k_mono.voice.gguf
+# CUDA_VISIBLE_DEVICES does not apply to Vulkan, which numbers this host's GPUs the other way
+# round: Vulkan1 is nvidia-smi GPU 0. The UUID check refuses to start on any other GPU.
+Environment=IRODORI_TTS_SPEECHCPP_DEVICE=Vulkan1
+Environment=IRODORI_TTS_SPEECHCPP_GPU_UUID=GPU-d4c17c05-f87d-de54-7fdc-adf8c1dc6f16
+# 12 sampler steps instead of the checkpoint's 40, chosen on 2026-10-17: 2.5x faster (0.586 -> 0.238 s
+# a sentence) with the same speaker similarity and reading on 5 + 26 sentences; similarity falls from
+# 10 steps down (docs/audits/tts-alternatives-2026-10-17.md).
+Environment=IRODORI_TTS_NUM_STEPS=12
 ExecStart=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS/.venv/bin/python /home/kyano/workspace/ACE/ace_kagawa/infra/tts/irodori_server.py
 Restart=on-failure
 RestartSec=5

@@ -795,7 +795,7 @@ kubectl delete -f /tmp/gpu-test-pod.yaml
 - `prepare_tokkio_workspace.py` は `.env` を読んで `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace` 配下を初期化し、one-click script 用 `my-config.env` を生成する。
 - `deploy_tokkio.sh` は `envbuild.sh` の `init-config`、`install`、`info`、`uninstall` を叩くラッパである。
 - `manage_tokkio.sh` は install 済み Tokkio 環境の `start`、`stop`、`status`、`restart`、`reapply`、`restart-controller`、`logs` をまとめる運用ラッパである。
-- `check_tokkio_endpoints.py` は UI/API/Grafana と `kubectl get pods -n app` の簡易確認を行う。
+- `check_tokkio_endpoints.py` は UI/API/Grafana と `kubectl get pods -n app` の簡易確認を行う。`--tts-base-url` を付けると TTS の health と 16 kHz PCM の合成も確認し、失敗があれば終了コード 1 を返す。
 - `check_tokkio_ngc_access.py` は Tokkio chart repo と `Audio2Face-3D` image pull 権限を事前確認する。
 
 主な directory:
@@ -1065,7 +1065,7 @@ python3 infra/tokkio/check_tokkio_ngc_access.py \
 
 このリポジトリから読み取れる事実:
 
-- `manage_tokkio.sh start` は `containerd`、`kubelet`、`nginx`、`coturn` を起動してから Pod と endpoint を確認する。
+- `manage_tokkio.sh start` は `containerd`、`kubelet`、`nginx`、`coturn` を起動してから Pod と endpoint を確認する。UI/API/Grafana が応答するまで待ち（`TOKKIO_ENDPOINT_WAIT_ATTEMPTS` × `TOKKIO_ENDPOINT_WAIT_SECONDS`）、日本語 TTS の health と短い合成も確認する。失敗時は workload を戻してから終了コード 1 を返す。
 - `stop` は非破壊停止で、app namespace の Deployment / StatefulSet を `replicas=0` へ落として GPU workload を静止する。
 - replica 数は `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/app-workload-replicas.tsv` に保存され、次の `start` で復元される。
 
@@ -1129,7 +1129,7 @@ kubectl rollout status deployment -n app <deployment-name>
 
 このリポジトリから読み取れる事実:
 
-- `check_tokkio_endpoints.py` は UI/API/Grafana と `kubectl get pods -n app` の簡易確認を行う。
+- `check_tokkio_endpoints.py` は UI/API/Grafana と `kubectl get pods -n app` の簡易確認を行う。`--tts-base-url` を付けると TTS の health と 16 kHz PCM の合成も確認し、失敗があれば終了コード 1 を返す。
 - 過去の single workstation 検証では、install output が API を `https` として示しても、実際の確認では `http://<app-ip>:30888` が必要な場合があった。
 
 実行ディレクトリ: `/home/kyano/workspace/ACE/ace_kagawa`

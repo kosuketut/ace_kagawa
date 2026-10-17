@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "evaluated_at": "2026-10-08T03:06:11.454409+00:00",
+  "namespace": "app",
+  "pod": "ace-controller-ace-controller-deployment-0",
+  "pod_phase": "Running",
+  "pod_ready": true,
+  "pod_restart_count": 0,
+  "llm": {
+    "base_url": "http://10.209.1.12:8011/v1",
+    "model": "llama-3.1-swallow-8b-instruct-v0.5"
+  },
+  "hashes": {
+    "local_rag.py": "edaadfed5019adbfc55cc1e6f6ad26660a572c0143108809d0bdec8594b1bad3",
+    "tokkio_rag.py": "5b045baff91379fab03ca5e0d5629c199e22c89cac88bd28e053ee7cb05685e3",
+    "config.yaml": "eed4d8bc325ec43242f1ce816a0ae853e4e2fd8865ae224be0e4f34a57f7d6e1",
+    "local_rag.sqlite": "0911f09f14f9f2286b3b62a7c13f2feaf9689b53ee3faf409cbbf3e196008c51",
+    "local_rag.manifest.json": "cdbe3af46c3a0ebca390c52ffe9c016f77f7cc4ede175fbad05882ae01ce3d8e"
+  },
+  "endpoints": {
+    "ui": 200,
+    "api_health": 200,
+    "grafana": 200
+  },
+  "in_pod_evaluation": {
+    "cases": 63,
+    "repeat": 5,
+    "summary": {
+      "must_rag_count": 51,
+      "must_not_rag_count": 7,
+      "must_rag_routing_success_rate": 1.0,
+      "must_rag_top_k_grounding_rate": 1.0,
+      "must_rag_domain_accuracy": 1.0,
+      "must_rag_temporal_accuracy": 1.0,
+      "must_rag_retrieval_success_rate": 1.0,
+      "mean_top_k_domain_precision": 1.0,
+      "must_not_rag_context_injections": 0,
+      "must_not_inject_count": 5,
+      "must_not_inject_context_injections": 0,
+      "citation_id_duplicate_cases": 0,
+      "followup_count": 3,
+      "followup_context_injection_successes": 3,
+      "search_latency_ms": {
+        "min": 0.547,
+        "median": 13.702,
+        "p95": 36.776,
+        "max": 69.657
+      }
+    }
+  },
+  "live_llm_probe": [
+    {
+      "query": "量子コンピュータの研究について教えてください",
+      "path": "direct_llm(generic_outside_corpus)",
+      "answer": "量子コンピュータは、量子力学の原理を利用して計算を行う次世代のコンピュータです。従来のコンピュータとは異なる計算方法で、特定の問題に対して高速な処理が期待されています。"
+    },
+    {
+      "query": "次のオープンキャンパスはいつですか",
+      "path": "rag_direct_reply [chunk_oc_202608_kamata,chunk_oc_202608_hachioji,chunk_oc_20260719_hachioji]",
+      "answer": "直近のオープンキャンパスは8月23日の八王子キャンパスで終了しており、次回の日程はまだ確認できません。"
+    },
+    {
+      "query": "推薦入試はありますか",
+      "path": "rag [chunk_plain_4773233706efd0d0,chunk_plain_02d5bc34108b4feb,chunk_plain_c3171ee6fa3cfae8]",
+      "answer": "学校推薦型選抜があります。指定校と公募制があります。"
+    },
+    {
+      "query": "東京工科大学はいつ開学しましたか",
+      "path": "rag [chunk_plain_34ed862b4d93ce52,chunk_kagawa_yutaka_40th_ai_dx_message,chunk_plain_388b110f4de0ade4]",
+      "answer": "東京工科大学は1986年に開学しました。"
+    },
+    {
+      "query": "香川先生の趣味は何ですか",
+      "path": "refused(query_content_not_found:趣味)",
+      "answer": "現在、信頼できる参照情報を確認できないため、この質問には正確にお答えできません。"
+    },
+    {
+      "query": "AIを学べる学部はありますか",
+      "path": "rag [chunk_plain_c19617ee4a93633a,chunk_plain_51622f38556ad5f0,chunk_plain_9ec2531ac7a2cc2f]",
+      "answer": "はい、AIを学べる学部として、先進情報専攻があります。人工知能領域ではデータ分析・機械学習・知能システムを扱います。"
+    },
+    {
+      "query": "片柳研究所とは何ですか",
+      "path": "rag [chunk_kagawa_yutaka_cmc_industrial_significance,chunk_kagawa_yutaka_katayanagi_institute_policy,chunk_kagawa_yutaka_profile_basic]",
+      "answer": "片柳研究所は、東京工科大学に所属する研究機関で、産官学連携を柱として研究を支援・推進しています。セラミックス複合材料センターを設置し、航空機エンジンなど産業上重要な部品へのCMC実用化に向けた研究を進めています。"
+    },
+    {
+      "query": "質問です。入学金はいくらですか",
+      "path": "rag [chunk_plain_8975de5172d962ff,chunk_plain_8027c09f8365b7f7,chunk_plain_5dd2d08fd077f281]",
+      "answer": "入学金は、メディア学部・応用生物学部・コンピュータサイエンス学部・工学部が25万円、医療保健学部（看護学科）が45万円、医療保健学部（臨床工学科・リハビリテーション学科・臨床検査学科）が34万円です。"
+    },
+    {
+      "query": "オープンキャンパスでは何ができますか",
+      "path": "rag [chunk_oc_202608_kamata,chunk_oc_202608_hachioji,chunk_oc_20260719_hachioji]",
+      "answer": "オープンキャンパスでは、蒲田キャンパスと八王子キャンパスでそれぞれ異なる日程で開催され、来場者は大学の雰囲気を体験できます。"
+    },
+    {
+      "query": "研究室はいくつありますか",
+      "path": "direct_llm(generic_outside_corpus)",
+      "answer": "確認できません。"
+    },
+    {
+      "query": "ノーベル賞の受賞者は誰ですか",
+      "path": "direct_llm(generic_outside_corpus)",
+      "answer": "ノーベル賞の受賞者は、毎年異なるため、特定できません。"
+    },
+    {
+      "query": "香川先生の研究について教えてください",
+      "path": "rag [chunk_kagawa_yutaka_nedo_cmc_reliability,chunk_kagawa_yutaka_kaken_projects,chunk_kagawa_yutaka_kaken_keywords]",
+      "answer": "私は複合材料、特にセラミックス複合材料（CMC）の研究に取り組んでいます。NEDOの事業に採択された信頼性保証技術開発や、科研費プロジェクトでの界面特性評価、損傷モニタリングなど、幅広いテーマを扱っています。"
+    }
+  ],
+  "limitations": [
+    "in_pod_evaluation ran evaluate_local_rag.py inside the Ready controller pod against the deployed local_rag.py, live route keywords, and deployed index.",
+    "live_llm_probe ran on the host: it rebuilt each router turn with the deployed local_rag.py, generated config.yaml (system prompt, route keywords, LLM endpoint), and index, then called the live LLM at temperature 0.2. It did not run the pipecat pipeline, submit microphone audio, or exercise TTS/avatar transport."
+  ]
+}

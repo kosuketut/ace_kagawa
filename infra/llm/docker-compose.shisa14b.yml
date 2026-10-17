@@ -1,0 +1,28 @@
+services:
+  vllm-shisa-v21-14b:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.9.2}
+    container_name: ${VLLM_CONTAINER_NAME:-ace-vllm-shisa-v21-14b}
+    restart: unless-stopped
+    runtime: nvidia
+    shm_size: "16gb"
+    ipc: host
+    network_mode: host
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${VLLM_GPU_DEVICES:-1}
+      OMP_NUM_THREADS: "8"
+    volumes:
+      - /data/ACE/models:/data/ACE/models
+    command:
+      - --model
+      - /data/ACE/models/shisa-v2.1-unphi4-14b
+      - --host
+      - 0.0.0.0
+      - --port
+      - ${VLLM_PORT:-8012}
+      - --served-model-name
+      - ${VLLM_SERVED_MODEL_NAME:-shisa-v2.1-unphi4-14b}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEM_UTIL:-0.75}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-16384}
+      - --disable-log-requests

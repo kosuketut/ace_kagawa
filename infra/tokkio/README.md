@@ -80,7 +80,7 @@ TOKKIO_LOCAL_RAG_TOP_K=3
 TOKKIO_LOCAL_RAG_MAX_CONTEXT_CHARS=2800
 ```
 
-RAG対象の知識質問で検索結果が得られない場合やRAG処理が失敗した場合は、直接LLMへフォールバックせず、参照情報を確認できない旨を応答します。
+RAG対象の知識質問で検索結果が得られない場合やRAG処理が失敗した場合は、直接LLMへフォールバックせず、参照情報を確認できない旨を応答します。例外は、`研究`・`受賞` などの一般語だけで香川先生ドメインに振り分けられ（`香川`・`学長`・`あなた`・`先生` を含まない）、質問の話題語がコーパスにない場合です（例: `量子コンピュータの研究について教えてください`）。これは RAG 対象外としてルーティング段階で通常の LLM に回し、「話題が資料にない・自分の研究と関係づけない・大学固有の数値は推測しない」という注記を付けます。判定の詳細は `infra/rag/README.md` の Routing, Confidence, And Citations を参照してください。
 
 local RAG index の作成は repo root から次を使います。
 
@@ -135,8 +135,17 @@ python3 check_tokkio_endpoints.py \
   --kubectl \
   --ui-url https://<app-ip>:30111 \
   --api-url http://<app-ip>:30888 \
-  --grafana-url http://<app-ip>:32300
+  --grafana-url http://<app-ip>:32300 \
+  --tts-base-url http://<app-ip>:8021
 ```
+
+`--tts-base-url` を付けると、TTS の `/healthz` と短い文（既定「確認しています」）の `/v1/audio/speech` ストリームを確認します。HTTP 200、空でない偶数長の PCM、`X-Sample-Rate-Hz: 16000` を満たさなければ失敗です。`--tts-health-only` で合成を省き、`/healthz` だけを見ます。どれかの確認に失敗すると終了コードは 1 です。
+
+`manage_tokkio.sh` の `status`・`start`・`restart`・`reapply` も、日本語モードでは同じ TTS 確認を行います。合成まで確かめたくない場合は `.env` に `TOKKIO_TTS_SYNTHESIS_CHECK_ENABLED=false` を書きます。ElevenLabs gateway（`:8022`）へ向けている場合は、実行のたびに課金対象の合成リクエストが 1 回発生するため、`false` を推奨します。
+
+`start`・`restart`・`reapply` では、復元した Pod（`tokkio-ingress`、`riva`、`triton` など）が controller より遅れて起動します。そのため最終確認の前に、UI・API・Grafana の確認だけを `TOKKIO_ENDPOINT_WAIT_ATTEMPTS` 回（既定 36）、`TOKKIO_ENDPOINT_WAIT_SECONDS` 秒（既定 5）間隔で繰り返します。待機中は TTS を確認せず、待機後の最終確認で合成を 1 回だけ行います。各 URL の HTTP タイムアウトは 10 秒なので、接続を拒否せずに黙る host では待機が最長で約 20 分になります。`status` は待たずに 1 回だけ確認します。
+
+`start`・`restart` は TTS や RAG の起動確認に失敗しても先に app workload を戻し、最後に終了コード 1 を返します。`reapply` も最終確認に失敗すると終了コード 1 を返します。原因は `[WARN]` 行と、endpoint 確認の JSON で `"ok": false` になっている項目で確認します。
 
 ### Day-2 Operations
 
@@ -148,9 +157,11 @@ python3 check_tokkio_endpoints.py \
 ./manage_tokkio.sh stop --env-file .env
 ```
 
-`start` は `containerd`, `kubelet`, `nginx`, `coturn` を起動してから `kubectl get pods -n app` と endpoint 確認まで流します。`stop` は非破壊停止のみで、`deploy_tokkio.sh uninstall` は呼びません。
+`start` は `containerd`, `kubelet`, `nginx`, `coturn` を起動し、endpoint が応答するまで待ってから `kubectl get pods -n app` と endpoint 確認まで流します。`stop` は非破壊停止のみで、`deploy_tokkio.sh uninstall` は呼びません。
 
 現在の `stop` は host 側サービス停止の前に `app` namespace の `Deployment` / `StatefulSet` を `replicas=0` へ落として GPU を使う Tokkio workload を静止します。退避した replica 数は `/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/workspace/controller/generated/app-workload-replicas.tsv` に保存され、次の `start` で復元されます。
+
+停止待ちでは、`Failed` / `Succeeded` の Pod（以前の ReplicaSet が残した `Error`・`ContainerStatusUnknown`・`Completed` の Pod）は数えません。これらは replica を 0 にしても消えないため、数えると毎回タイムアウトしていました。それでも動作中の Pod が残った場合、`stop` は TTS と host 側サービスの停止まで続けてから、終了コード 1 で終わります。vLLM コンテナ（`ace-vllm-llama31-swallow-8b`）は `stop` では止まりません。止めるときは `containerd` を止める前に `docker stop` してください（後に回すと docker が終了を検知できず、状態が `Up` のまま残ります）。
 
 起動だけで戻らない場合:
 
@@ -192,3 +203,14 @@ python3 infra/tokkio/customize_tokkio_japanese.py \
 冒頭の「皆さん、こんにちは。」だけは、`/data/ACE/irodori/fixed-phrases/open_campus_greeting_16k_mono.pcm` が存在する場合に事前生成済み音声を返します。ファイルがない場合は通常のIrodori生成へフォールバックします。
 
 詳細な手順と前提は [`docs/operations/tokkio-japanese-customization.md`](/home/kyano/workspace/ACE/ace_kagawa/docs/operations/tokkio-japanese-customization.md) を参照してください。
+
+### 英語シンポジウム挨拶
+
+英語音声へ切り替える場合は `.env` で `TOKKIO_TTS_PROCESSOR=QwenTTSService` を指定し、`TOKKIO_QWEN_TTS_ENABLED` は `true` にするか空にします（空なら `true` 扱い。`QwenTTSService` なのに明示的に `false` だと `start`・`restart` はエラーで止まります）。互換性のためselector名はQwenのままですが、実backendは `en-tts/indextts_tts_server.py` のIndexTTS-2.5です。香川先生の英語参照音声を使い、サーバー側で22.05 kHzの生成音声をAudio2Faceの16 kHz契約へ帯域制限つきでresampleして返します。日本語モードに戻したときに `ace-indextts-tts.service` が動いていると、GPU1 を使い続けるため `status` が警告します。
+
+```bash
+en-tts/install_indextts_tts_service.sh
+infra/tokkio/manage_tokkio.sh reapply --env-file infra/tokkio/.env
+```
+
+英語モードではASRも `en-US` に切り替わり、自動の挨拶・退出音声は無効になります。WebUIで `Start` と発話または入力すると固定英語原稿を7文に分けてIndexTTSへ渡し、読み上げ中の `Stop` は即時中断して返答音声を出しません。`Please read the symposium opening.` も利用できます。事前生成WAVの直接再生は使いません。

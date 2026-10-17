@@ -82,3 +82,27 @@ uv run ace-tts clone-from-youtube \
   --duration 12 \
   --output output/cloned.wav
 ```
+
+## Qwen3-TTS comparison (isolated)
+
+Sarashina2.2, Irodori-TTS, and Qwen3-TTS must all use the same authorized reference audio and exact transcript for zero-shot voice cloning. Keep Qwen's environment, model cache, and output under `/data/ACE/qwen3-tts` because `qwen-tts==0.1.1` requires a separate Transformers environment.
+
+```bash
+mkdir -p /data/ACE/qwen3-tts/{hf-cache,output,uv-cache}
+uv venv /data/ACE/qwen3-tts/.venv --python 3.12
+UV_CACHE_DIR=/data/ACE/qwen3-tts/uv-cache \
+uv pip install --python /data/ACE/qwen3-tts/.venv/bin/python \
+  --default-index https://download.pytorch.org/whl/cu128 \
+  torch==2.9.0 torchaudio==2.9.0
+UV_CACHE_DIR=/data/ACE/qwen3-tts/uv-cache \
+uv pip install --python /data/ACE/qwen3-tts/.venv/bin/python qwen-tts==0.1.1
+
+HF_HOME=/data/ACE/qwen3-tts/hf-cache \
+/data/ACE/qwen3-tts/.venv/bin/python qwen_voice_clone.py \
+  --reference-audio /data/ACE/qwen3-tts/reference.wav \
+  --reference-text '参照音声と正確に一致する文字起こし。' \
+  --text '生成したい文章をここに入れてください。' \
+  --output /data/ACE/qwen3-tts/output/qwen-cloned.wav
+```
+
+The runner uses `Qwen/Qwen3-TTS-12Hz-1.7B-Base` by default and emits JSON timing metadata on stdout.

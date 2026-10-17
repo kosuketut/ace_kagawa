@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import importlib.util
 import json
 from pathlib import Path
 import statistics
@@ -14,6 +15,7 @@ from local_rag import (
     DEFAULT_DB_PATH,
     assess_local_rag_query,
     citations_for_hits,
+    classify_query,
     dumps_json,
     filter_hits_for_domain,
     resolve_conversation_query,
@@ -22,6 +24,18 @@ from local_rag import (
 
 
 DEFAULT_CASES_PATH = Path(__file__).with_name("evaluation_cases.json")
+CUSTOMIZER_PATH = Path(__file__).resolve().parents[1] / "tokkio" / "customize_tokkio_japanese.py"
+
+
+def production_route_keywords() -> str:
+    """Use the same route keywords that customize_tokkio_japanese.py renders into the controller."""
+
+    spec = importlib.util.spec_from_file_location("customize_tokkio_japanese", CUSTOMIZER_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load {CUSTOMIZER_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return ",".join(module.DEFAULT_RAG_ROUTE_KEYWORDS)
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,12 +53,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--route-keywords",
-        default=(
-            "論文,文献,出典,根拠,資料,ドキュメント,引用,詳細,詳しく,経歴,学歴,職歴,略歴,"
-            "役職,現職,職名,学位,所属,生年月日,年齢,プロフィール,誰ですか,専門分野,業績,"
-            "研究業績,研究内容,研究,プロジェクト,発表,受賞,特許,EBC,CMC,SiC/SiC,非破壊評価,"
-            "学費,入学金,授業料,奨学金,学生支援,専攻"
-        ),
+        default=None,
+        help="Comma-separated route keywords (default: the production TOKKIO_RAG_ROUTE_KEYWORDS default)",
     )
     return parser.parse_args()
 
@@ -68,18 +78,21 @@ def evidence_in_top_k(case: dict, hits: list) -> bool:
 
 def evaluate(args: argparse.Namespace) -> dict:
     cases = json.loads(args.cases.read_text(encoding="utf-8"))["cases"]
-    legacy_keywords = tuple(keyword.strip().lower() for keyword in args.route_keywords.split(",") if keyword.strip())
+    route_keywords = args.route_keywords if args.route_keywords is not None else production_route_keywords()
+    legacy_keywords = tuple(keyword.strip().lower() for keyword in route_keywords.split(",") if keyword.strip())
     results = []
     latencies_ms: list[float] = []
 
     for case in cases:
         user_messages = case.get("user_messages") or [case["query"]]
         query = resolve_conversation_query(user_messages, legacy_keywords)
+        # Mirror TokkioNvidiaLLMRAGRouterService: classify with route keywords, then search that domain.
+        route = classify_query(query, legacy_keywords)
         case_latencies = []
         hits = []
         for _ in range(args.repeat):
             start = time.perf_counter()
-            hits = search_index(args.db, query, top_k=args.top_k)
+            hits = search_index(args.db, query, top_k=args.top_k, domain=route.domain)
             case_latencies.append((time.perf_counter() - start) * 1000.0)
         latencies_ms.extend(case_latencies)
         search_ms = statistics.median(case_latencies)
@@ -138,6 +151,7 @@ def evaluate(args: argparse.Namespace) -> dict:
 
     must_rag = [result for result in results if result["expectation"] == "must_rag"]
     must_not = [result for result in results if result["expectation"] == "must_not_rag"]
+    must_not_inject = [result for result in results if result["expectation"] == "must_not_inject"]
     followups = [result for result in results if len(result["user_messages"]) > 1]
     successful_must_rag = [
         result
@@ -160,6 +174,8 @@ def evaluate(args: argparse.Namespace) -> dict:
             4,
         ),
         "must_not_rag_context_injections": sum(result["context_injected"] for result in must_not),
+        "must_not_inject_count": len(must_not_inject),
+        "must_not_inject_context_injections": sum(result["context_injected"] for result in must_not_inject),
         "citation_id_duplicate_cases": sum(not result["citation_ids_unique"] for result in results),
         "followup_count": len(followups),
         "followup_context_injection_successes": sum(result["context_injected"] for result in followups),

@@ -1,0 +1,23 @@
+{
+  "label": "kagawa: Tokkio-free local conversation (vLLM Swallow 8B + Irodori kagawa + kotoba-whisper)",
+  "llm_base_url": "http://127.0.0.1:8011/v1",
+  "llm_model": "llama-3.1-swallow-8b-instruct-v0.5",
+  "tts_base_url": "http://127.0.0.1:8021",
+  "tts_voice": "kagawa",
+  "system_prompt": "tokkio",
+  "temperature": 0.0,
+  "max_tokens": 256,
+  "max_reply_chars": 400,
+  "split_first_clause": true,
+  "asr": {
+    "model_dir": "/data/ACE/models/kotoba-whisper-v2.0-faster",
+    "device_index": 1,
+    "compute_type": "float16",
+    "beam_size": 5
+  },
+  "auto_voice": {
+    "end_silence_ms": 700,
+    "early_asr_ms": 300,
+    "reply_tail_ms": 1200
+  }
+}

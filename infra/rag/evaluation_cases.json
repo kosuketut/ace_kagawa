@@ -460,6 +460,142 @@
       "id": "unknown_admission_system",
       "query": "未来創造特別選抜制度について教えてください",
       "expectation": "must_not_rag"
+    },
+    {
+      "id": "university_founding_year",
+      "query": "東京工科大学はいつ開学しましたか",
+      "expectation": "must_rag",
+      "domain": "university",
+      "expected_chunk_ids": [
+        "chunk_plain_34ed862b4d93ce52"
+      ]
+    },
+    {
+      "id": "katayanagi_institute",
+      "query": "片柳研究所とは何ですか",
+      "expectation": "must_rag",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_katayanagi_institute_policy"
+      ]
+    },
+    {
+      "id": "faculty_for_ai",
+      "query": "AIを学べる学部はありますか",
+      "expectation": "must_rag",
+      "domain": "faculties",
+      "expected_chunk_ids": [
+        "chunk_plain_6f456b4ec94dd869",
+        "chunk_plain_9ec2531ac7a2cc2f",
+        "chunk_plain_51622f38556ad5f0",
+        "chunk_plain_a313442ff2495769"
+      ]
+    },
+    {
+      "id": "school_recommendation_admission",
+      "query": "推薦入試はありますか",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_4773233706efd0d0",
+        "chunk_plain_e6ff2ef60f19239c",
+        "chunk_plain_88a6ef310f21f2b7",
+        "chunk_plain_fdcacb3ebf425f5f",
+        "chunk_plain_035acca2ee99544b",
+        "chunk_plain_c3171ee6fa3cfae8",
+        "chunk_plain_a6fabd0c17cd623b",
+        "chunk_plain_a6fabd0c17cd623b__part_02",
+        "chunk_plain_f5a2982c0ecacff8"
+      ],
+      "note": "Any retrieved evidence must name 学校推薦型選抜; before the content-term fix the top 3 did not mention it."
+    },
+    {
+      "id": "admission_competition_ratio",
+      "query": "入試の倍率はどのくらいですか",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_6ee72602e531015b"
+      ]
+    },
+    {
+      "id": "kagawa_birthplace",
+      "query": "香川先生の出身地はどこですか",
+      "expectation": "must_rag",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_birth_degree_fields"
+      ]
+    },
+    {
+      "id": "kagawa_president_since",
+      "query": "香川先生はいつ学長になりましたか",
+      "expectation": "must_rag",
+      "expected_chunk_ids": [
+        "chunk_kagawa_yutaka_president_appointment"
+      ]
+    },
+    {
+      "id": "generic_research_topic_outside_corpus",
+      "query": "量子コンピュータの研究について教えてください",
+      "expectation": "must_not_inject"
+    },
+    {
+      "id": "generic_lab_count_outside_corpus",
+      "query": "研究室はいくつありますか",
+      "expectation": "must_not_inject"
+    },
+    {
+      "id": "kagawa_hobby_outside_corpus",
+      "query": "香川先生の趣味は何ですか",
+      "expectation": "must_not_inject"
+    },
+    {
+      "id": "open_campus_reservation_outside_corpus",
+      "query": "オープンキャンパスの予約は必要ですか",
+      "expectation": "must_not_inject"
+    },
+    {
+      "id": "university_student_count_outside_corpus",
+      "query": "東京工科大学の学生数は何人ですか",
+      "expectation": "must_not_inject"
+    },
+    {
+      "id": "conversational_open_campus_schedule",
+      "query": "私は高校2年生ですが、オープンキャンパスはいつですか",
+      "expectation": "must_rag",
+      "domain": "open_campus",
+      "expected_chunk_ids": [
+        "chunk_oc_202608_kamata",
+        "chunk_oc_202608_hachioji"
+      ]
+    },
+    {
+      "id": "conversational_entrance_fee",
+      "query": "質問です。入学金はいくらですか",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_8975de5172d962ff"
+      ]
+    },
+    {
+      "id": "conversational_hachioji_access",
+      "query": "すみません、八王子キャンパスへの行き方を教えてください",
+      "expectation": "must_rag",
+      "domain": "access",
+      "expected_chunk_ids": [
+        "chunk_access_hachioji_from_hachioji_station"
+      ]
+    },
+    {
+      "id": "conversational_cs_admissions",
+      "query": "息子がコンピュータサイエンス学部を志望しています。入試について教えてください",
+      "expectation": "must_rag",
+      "domain": "admissions",
+      "expected_chunk_ids": [
+        "chunk_plain_63bee4475dda6c82",
+        "chunk_plain_5b15188c2108b392",
+        "chunk_plain_44bf47828f453d0d"
+      ]
     }
   ]
 }

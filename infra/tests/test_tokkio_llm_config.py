@@ -83,6 +83,9 @@ def load_tokkio_llm_with_stubs():
         def debug(self, *_args, **_kwargs):
             pass
 
+        def info(self, *_args, **_kwargs):
+            pass
+
         def warning(self, *_args, **_kwargs):
             pass
 
@@ -90,8 +93,15 @@ def load_tokkio_llm_with_stubs():
             pass
 
     class Frame:
-        def __init__(self, content=""):
+        def __init__(self, content="", **kwargs):
             self.content = content
+            self.__dict__.update(kwargs)
+
+    class LLMFullResponseStartFrame(Frame):
+        pass
+
+    class LLMFullResponseEndFrame(Frame):
+        pass
 
     class BaseLLMService:
         pass
@@ -107,6 +117,8 @@ def load_tokkio_llm_with_stubs():
     install_stub_module("pipecat")
     install_stub_module("pipecat.frames")
     frames = install_stub_module("pipecat.frames.frames")
+    frames.LLMFullResponseEndFrame = LLMFullResponseEndFrame
+    frames.LLMFullResponseStartFrame = LLMFullResponseStartFrame
     frames.TextFrame = Frame
     frames.TTSSpeakFrame = Frame
     install_stub_module("pipecat.processors")
@@ -119,6 +131,46 @@ def load_tokkio_llm_with_stubs():
     openai_llm.OpenAILLMService = BaseLLMService
 
     return load_module("tokkio_llm_fast_reply_test", ROOT / "infra" / "tokkio" / "tokkio_llm.py")
+
+
+def load_tokkio_rag_with_stubs():
+    """Load tokkio_rag.py as part of a stub package, as it is imported inside the controller."""
+
+    tokkio_llm = load_tokkio_llm_with_stubs()
+
+    class Frame:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.__dict__.update(kwargs)
+
+    def identity_decorator(*args, **_kwargs):
+        if len(args) == 1 and callable(args[0]):
+            return args[0]
+        return lambda wrapped: wrapped
+
+    install_stub_module("httpx")
+    install_stub_module("nvidia_pipecat.frames")
+    nvidia_rag_frames = install_stub_module("nvidia_pipecat.frames.nvidia_rag")
+    nvidia_rag_frames.NvidiaRAGCitation = Frame
+    nvidia_rag_frames.NvidiaRAGCitationsFrame = Frame
+    nvidia_rag_service = install_stub_module("nvidia_pipecat.services.nvidia_rag")
+    nvidia_rag_service.NvidiaRAGService = type("NvidiaRAGService", (), {})
+    install_stub_module("nvidia_pipecat.utils")
+    tracing = install_stub_module("nvidia_pipecat.utils.tracing")
+    tracing.AttachmentStrategy = types.SimpleNamespace(NONE="none")
+    tracing.traceable = identity_decorator
+    tracing.traced = identity_decorator
+    install_stub_module("openai")
+    install_stub_module("openai.types")
+    openai_chat = install_stub_module("openai.types.chat")
+    openai_chat.ChatCompletionMessageParam = dict
+    sys.modules["pipecat.frames.frames"].ErrorFrame = Frame
+
+    package = install_stub_module("tokkio_rag_router_test_pkg")
+    package.__path__ = []
+    sys.modules["tokkio_rag_router_test_pkg.tokkio_llm"] = tokkio_llm
+    load_module("tokkio_rag_router_test_pkg.local_rag", ROOT / "infra" / "rag" / "local_rag.py")
+    return load_module("tokkio_rag_router_test_pkg.tokkio_rag", ROOT / "infra" / "tokkio" / "tokkio_rag.py")
 
 
 class TokkioLlmConfigTests(unittest.TestCase):
@@ -366,6 +418,60 @@ class TokkioLlmConfigTests(unittest.TestCase):
             router_error_block,
         )
 
+    def test_rag_router_sends_generic_topics_outside_the_corpus_to_direct_llm(self) -> None:
+        tokkio_rag = load_tokkio_rag_with_stubs()
+        local_rag = sys.modules["tokkio_rag_router_test_pkg.local_rag"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            corpus_dir = Path(tmp) / "corpus"
+            corpus_dir.mkdir()
+            (corpus_dir / "kagawa.md").write_text(
+                "# Kagawa\n\n"
+                "## kaken_keywords\n\n"
+                "source_url: https://nrid.nii.ac.jp/example\n"
+                "source_priority: P1\n"
+                "record_type: kagawa_research_keywords\n"
+                "chunk_id: chunk_kagawa_kaken_keywords\n"
+                "keywords: 複合材料, CMC, SiC/SiC\n\n"
+                "香川豊先生の研究分野は、複合材料、セラミックス基複合材料（CMC）、界面力学特性です。\n",
+                encoding="utf-8",
+            )
+            db_path = Path(tmp) / "local_rag.sqlite"
+            local_rag.build_index(corpus_dir, db_path)
+
+            router = object.__new__(tokkio_rag.TokkioNvidiaLLMRAGRouterService)
+            router.provider = "local"
+            router.local_db_path = str(db_path)
+            router.local_top_k = 3
+            router.route_keywords = tuple(customize.DEFAULT_RAG_ROUTE_KEYWORDS)
+
+            def routes_to_rag(text: str) -> bool:
+                return router._should_use_rag([{"role": "user", "content": text}])
+
+            # Routed only by the generic word 研究, and the corpus never mentions the topic.
+            self.assertFalse(routes_to_rag("量子コンピュータの研究について教えてください"))
+            quantum_turn = [{"role": "user", "content": "量子コンピュータの研究について教えてください"}]
+            self.assertEqual(router._rag_route(quantum_turn), "outside_corpus")
+            # The plain LLM receives the no-evidence note ahead of the user's words.
+            context = types.SimpleNamespace(get_messages=lambda: quantum_turn)
+            note_context = router._build_local_rag_context(
+                context, tokkio_rag.OUTSIDE_CORPUS_PROMPT_NOTE, quantum_turn[0]["content"]
+            )
+            sent = note_context.get_messages()[-1]["content"]
+            self.assertTrue(sent.startswith(tokkio_rag.OUTSIDE_CORPUS_PROMPT_NOTE))
+            self.assertTrue(sent.endswith("量子コンピュータの研究について教えてください"))
+            self.assertEqual(router._rag_route([{"role": "user", "content": "今日の天気は"}]), "direct")
+            # Generic wording whose topic the corpus does cover stays grounded.
+            self.assertTrue(routes_to_rag("セラミックスの研究について教えてください"))
+            # Questions addressed to Kagawa stay on the grounded path even when unanswerable,
+            # so they get the fixed "cannot confirm" reply instead of an ungrounded LLM answer.
+            self.assertTrue(routes_to_rag("香川先生の趣味は何ですか"))
+            self.assertTrue(routes_to_rag("あなたの研究について教えてください"))
+
+            # A broken index must reach the grounded path's error handler, not escape routing.
+            router.local_db_path = str(Path(tmp) / "missing.sqlite")
+            self.assertTrue(routes_to_rag("量子コンピュータの研究について教えてください"))
+
     def test_custom_config_yaml_uses_early_cached_filler_delay(self) -> None:
         yaml_text = customize.build_config_yaml()
 
@@ -448,6 +554,36 @@ class TokkioLlmConfigTests(unittest.TestCase):
             )
         )
 
+    def test_tokkio_llm_symposium_opening_uses_tts_sentence_segments(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        script = tokkio_llm.get_scripted_speech_reply(
+            [{"role": "user", "content": "シンポジウムのオープニングをお願いします。"}]
+        )
+
+        self.assertEqual(script, tokkio_llm.SYMPOSIUM_OPENING_SCRIPT)
+        self.assertEqual(len(script), 7)
+        self.assertEqual(script[0], "Good afternoon, everyone.")
+        self.assertEqual(
+            script[-1],
+            "And now, please welcome Professor Kagawa, the President of the Tokyo University of Technology.",
+        )
+        self.assertEqual(
+            tokkio_llm.get_scripted_speech_reply(
+                [{"role": "user", "content": "Please read the symposium opening."}]
+            ),
+            tokkio_llm.SYMPOSIUM_OPENING_SCRIPT,
+        )
+        self.assertEqual(
+            tokkio_llm.get_scripted_speech_reply([{"role": "user", "content": "Start."}]),
+            tokkio_llm.SYMPOSIUM_OPENING_SCRIPT,
+        )
+        self.assertIsNone(
+            tokkio_llm.get_scripted_speech_reply(
+                [{"role": "user", "content": "シンポジウムはいつですか？"}]
+            )
+        )
+
     def test_tokkio_llm_open_campus_greeting_pushes_sentence_segments_without_llm(self) -> None:
         tokkio_llm = load_tokkio_llm_with_stubs()
 
@@ -483,12 +619,37 @@ class TokkioLlmConfigTests(unittest.TestCase):
 
         harness = __import__("asyncio").run(exercise_script())
 
+        # The assistant context aggregator records only text wrapped by response start/end frames.
+        self.assertIsInstance(harness.frames[0], tokkio_llm.LLMFullResponseStartFrame)
+        self.assertIsInstance(harness.frames[-1], tokkio_llm.LLMFullResponseEndFrame)
         self.assertEqual(
-            [frame.content for frame in harness.frames],
+            [frame.content for frame in harness.frames[1:-1]],
             list(tokkio_llm.OPEN_CAMPUS_GREETING_SCRIPT),
         )
         self.assertEqual(harness.metrics_started, 1)
         self.assertEqual(harness.metrics_stopped, 1)
+
+    def test_tokkio_llm_stop_cue_interrupts_without_reply_or_llm(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+
+        async def exercise_stop():
+            class Harness(tokkio_llm.TokkioLLMServiceMixin):
+                async def start_ttfb_metrics(self) -> None:
+                    pass
+
+                async def stop_ttfb_metrics(self) -> None:
+                    pass
+
+                async def push_frame(self, _frame) -> None:
+                    raise AssertionError("stop must not produce speech")
+
+            async def unexpected_stream(_context):
+                raise AssertionError("stop must not call the LLM")
+
+            context = types.SimpleNamespace(get_messages=lambda: [{"role": "user", "content": "Stop."}])
+            await Harness()._process_context_common(context, unexpected_stream)
+
+        __import__("asyncio").run(exercise_stop())
 
     def test_tokkio_llm_open_campus_closing_uses_separate_fixed_script(self) -> None:
         tokkio_llm = load_tokkio_llm_with_stubs()
@@ -597,7 +758,9 @@ class TokkioLlmConfigTests(unittest.TestCase):
 
         harness = __import__("asyncio").run(exercise_retry())
         self.assertEqual(harness.calls, 2)
-        self.assertEqual([frame.content for frame in harness.frames], ["再試行で応答しました。"])
+        self.assertIsInstance(harness.frames[0], tokkio_llm.LLMFullResponseStartFrame)
+        self.assertIsInstance(harness.frames[-1], tokkio_llm.LLMFullResponseEndFrame)
+        self.assertEqual([frame.content for frame in harness.frames[1:-1]], ["再試行で応答しました。"])
         self.assertIn("混み合っています", tokkio_llm._LLM_BUSY_REPLY)
 
     def test_speech_segment_buffer_emits_sentences_as_soon_as_punctuation_arrives(self) -> None:
@@ -637,6 +800,31 @@ class TokkioLlmConfigTests(unittest.TestCase):
         self.assertEqual(buffer.feed("特に、"), [])
         self.assertEqual(buffer.feed("材料強度学について、次に"), ["特に、材料強度学について、"])
         self.assertEqual(buffer.flush(), ["次に"])
+
+    def test_speech_segment_buffer_keeps_decimals_and_thousands_separators_together(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        text = (
+            "倍率は約1.5倍で、IELTSは6.5以上です。"
+            "入学金は250,000円、授業料は年間703,000円、施設設備費は1,234,000円です。"
+        )
+        buffer = tokkio_llm.SpeechSegmentBuffer()
+
+        segments: list[str] = []
+        for char in text:  # worst case: the LLM streams one character per delta
+            segments.extend(buffer.feed(char))
+        segments.extend(buffer.flush())
+
+        self.assertEqual("".join(segments), text)
+        for segment in segments:
+            self.assertNotRegex(segment, r"^[\d.,]|[\d][.,]$")
+
+    def test_speech_segment_buffer_still_splits_on_ascii_period_between_sentences(self) -> None:
+        tokkio_llm = load_tokkio_llm_with_stubs()
+        buffer = tokkio_llm.SpeechSegmentBuffer()
+
+        self.assertEqual(buffer.feed("It is 2026."), [])
+        self.assertEqual(buffer.feed(" Next"), ["It is 2026. "])
+        self.assertEqual(buffer.flush(), ["Next"])
 
     def test_speech_segment_buffer_does_not_emit_punctuation_only_segments(self) -> None:
         tokkio_llm = load_tokkio_llm_with_stubs()
@@ -757,6 +945,25 @@ class TokkioLlmConfigTests(unittest.TestCase):
             customize.patch_riva_values(ace_repo_dir)
 
             self.assertIn(EXPECTED_ASR_RMIR, values_path.read_text(encoding="utf-8"))
+
+    def test_patch_riva_values_uses_english_asr_for_qwen_tts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ace_repo_dir = Path(tmp)
+            values_path = (
+                ace_repo_dir
+                / "workflows"
+                / "tokkio"
+                / "5.0.0-ga"
+                / "llm-rag"
+                / "tokkio-1stream-no-ui"
+                / "values.yaml"
+            )
+            values_path.parent.mkdir(parents=True)
+            values_path.write_text(f"models:\n  - {EXPECTED_ASR_RMIR}\n", encoding="utf-8")
+
+            customize.patch_riva_values(ace_repo_dir, tts_processor="QwenTTSService")
+
+            self.assertIn(customize.ENGLISH_ASR_RMIR, values_path.read_text(encoding="utf-8"))
 
     def test_patch_riva_values_migrates_previous_japanese_asr_rmir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1074,6 +1281,23 @@ class TokkioLlmConfigTests(unittest.TestCase):
         yaml_text = customize.build_config_yaml(irodori_tts_base_url="http://192.0.2.10:8021")
 
         self.assertIn('base_url: "http://192.0.2.10:8021"', yaml_text)
+
+    def test_custom_config_yaml_can_select_qwen_english_tts(self) -> None:
+        yaml_text = customize.build_config_yaml(
+            tts_processor="QwenTTSService",
+            qwen_tts_base_url="http://192.0.2.20:8022",
+        )
+
+        self.assertIn('tts_processor: "QwenTTSService"', yaml_text)
+        self.assertIn('base_url: "http://192.0.2.20:8022"', yaml_text)
+        self.assertIn('voice: "kagawa_en"', yaml_text)
+        self.assertIn('sample_rate: 16000', yaml_text)
+        self.assertIn('language: "en-US"', yaml_text)
+        self.assertIn(f'model: "{customize.ENGLISH_ASR_MODEL}"', yaml_text)
+        self.assertIn('welcome_message: ""', yaml_text)
+        self.assertIn('farewell_message: ""', yaml_text)
+        self.assertIn("filler: []", yaml_text)
+        self.assertIn("英語で応答する対話型", yaml_text)
 
     def test_manage_tokkio_auto_rag_health_is_optional(self) -> None:
         script = (ROOT / "infra" / "tokkio" / "manage_tokkio.sh").read_text(encoding="utf-8")
