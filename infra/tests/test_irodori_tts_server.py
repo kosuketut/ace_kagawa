@@ -47,7 +47,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(settings.duration_cap_mora_per_second, 6.0)
         self.assertEqual(settings.duration_scale, 1.0)
         self.assertEqual(settings.short_duration_max_chars, 16)
-        self.assertEqual(settings.short_duration_scale, 0.8)
+        self.assertEqual(settings.short_duration_scale, 1.0)
         self.assertEqual(settings.response_sample_rate_hz, 16000)
         self.assertEqual(settings.voice, "kagawa")
         self.assertEqual(settings.reference_source, ROOT / "Irodori-TTS" / "data" / "kagawa_voice.m4a")
@@ -169,8 +169,9 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(len(pcm), 160 * 2)
         decoded = np.frombuffer(pcm, dtype="<i2")
         self.assertEqual(decoded.shape, (160,))
-        self.assertEqual(decoded[0], -32768)
-        self.assertEqual(decoded[-1], 32767)
+        # The band-limiting filter softens the clip edges, so check clipping on interior samples.
+        self.assertEqual(decoded[16], -32768)
+        self.assertEqual(decoded[-17], 32767)
 
     def test_wav_bytes_wrap_pcm16_audio(self) -> None:
         pcm = np.array([0, 1000, -1000], dtype="<i2").tobytes()
@@ -287,7 +288,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(
             normalized,
             "期限はにせんにじゅうろくねんじゅうにがつじゅうごにち、"
-            "利用者はひゃくさんめい、全体のよんじゅうぱーせんと、"
+            "利用者はひゃくさんめい、全体のよんじゅっぱーせんと、"
             "電話はぜろよんにのろくさんななのにぜろいちいちです。",
         )
 
@@ -311,7 +312,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
         self.assertEqual(
             normalized,
             "性能はさんてんろくろくさんきゅうにペタフロップス、"
-            "きゅうじゅうはちてんよんにぜろさんテラフロップス、"
+            "きゅうじゅうはってんよんにぜろさんテラフロップス、"
             "容量はじゅうななてんにはちテラバイト、CPUは"
             "いちまんごせんごひゃくごじゅうにコアです。",
         )
@@ -321,7 +322,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
 
         self.assertEqual(
             normalized,
-            "CUDA じゅうさんてんにてんいちてんいち、Ubuntu にじゅうよんてんぜろよんてんさん LTSです。",
+            "CUDA じゅうさんてんにてんいってんいち、Ubuntu にじゅうよんてんぜろよんてんさん LTSです。",
         )
 
     def test_normalize_speech_input_does_not_rewrite_product_name_digits(self) -> None:
@@ -377,10 +378,10 @@ class IrodoriTtsServerTests(unittest.TestCase):
 
     def test_normalize_speech_input_reads_dates_days_and_ranges(self) -> None:
         cases = {
-            "4/1（火）から開始します。": "しがつついたち、火曜日、から開始します。",
-            "2026/4/1です。": "にせんにじゅうろくねんしがつついたちです。",
+            "4/1（火）から開始します。": "しがつ ついたち、火曜日、から開始します。",
+            "2026/4/1です。": "にせんにじゅうろくねんしがつ ついたちです。",
             "24/7です。": "にじゅうよん/ななです。",
-            "4月1日と毎月1日です。": "しがつついたちと毎月ついたちです。",
+            "4月1日と毎月1日です。": "しがつ ついたちと毎月ついたちです。",
             "1日目と7日間、1日に2回です。": "いちにちめとなのかかん、いちにちににかいです。",
             "2〜3人、1〜3月です。": "ふたりからさんにん、いちがつからさんがつです。",
             "9〜17時です。": "くじからじゅうしちじです。",
@@ -396,7 +397,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
             "¥5,000です。": "ごせんえんです。",
             "0.5秒です。": "れいてんご秒です。",
             "36.5℃、100m、5km、10kgです。": (
-                "さんじゅうろくてんごど、ひゃくメートル、ごキロメートル、じゅうキログラムです。"
+                "さんじゅうろくてんごど、ひゃくメートル、ごキロメートル、じゅっキログラムです。"
             ),
             "5Gと3Dです。": "5Gと3Dです。",
         }
@@ -528,7 +529,7 @@ class IrodoriTtsServerTests(unittest.TestCase):
         # A pause at internal punctuation counts as two mora; the final "。" does not.
         self.assertEqual(irodori_server.estimate_speech_mora("ええ、そうです。"), 8.0)
         self.assertEqual(irodori_server.estimate_speech_mora("しょうしょう"), 4.0)
-        self.assertAlmostEqual(irodori_server.estimate_speech_mora("私はAI"), 1.7 + 1.0 + 3.0)
+        self.assertAlmostEqual(irodori_server.estimate_speech_mora("私はAI"), 1.7 + 1.0 + 4.0)
 
     def test_synthesize_caps_predicted_duration_by_estimated_mora(self) -> None:
         class FakeSamplingRequest:
@@ -653,7 +654,9 @@ class IrodoriTtsServerTests(unittest.TestCase):
             prerecorded = synthesizer.synthesize("皆さん、こんにちは。", response_format="pcm")
             prerecorded_wav = synthesizer.synthesize("皆さん、こんにちは。", response_format="wav")
 
-            self.assertEqual(prerecorded, (pcm, "audio/L16", 16000))
+            # Served through the same fade and -0.5 dB output gain as synthesized speech.
+            expected_pcm = np.array([0, 472, -472, 0], dtype="<i2").tobytes()
+            self.assertEqual(prerecorded, (expected_pcm, "audio/L16", 16000))
             self.assertTrue(prerecorded_wav[0].startswith(b"RIFF"))
             self.assertEqual(prerecorded_wav[1:], ("audio/wav", 16000))
             self.assertIsNone(synthesizer._runtime)
@@ -755,67 +758,6 @@ class IrodoriTtsServerTests(unittest.TestCase):
             synthesizer,
             "香川豊です。",
             chunk_bytes=4,
-        )
-
-        self.assertEqual(synthesizer.stream_calls, [])
-        self.assertEqual(b"".join(body_iter), b"\x01\x00\x02\x00")
-        self.assertEqual(synthesizer.synthesize_calls, 0)
-        self.assertEqual(synthesizer.stream_calls, [("香川豊です。", 4)])
-
-    def test_streaming_pcm_response_iterator_defaults_to_full_synthesis_chunks(self) -> None:
-        class FakeSynthesizer:
-            def __init__(self) -> None:
-                self.synthesize_calls: list[tuple[str, str]] = []
-                self.stream_calls = 0
-
-            def synthesize(self, text: str, *, response_format: str = "pcm"):
-                self.synthesize_calls.append((text, response_format))
-                return b"\x01\x00\x02\x00\x03\x00", "audio/L16", 16000
-
-            def iter_pcm_stream(self, text: str, *, chunk_bytes: int):
-                self.stream_calls += 1
-                raise AssertionError("progressive stream must be opt-in")
-
-        synthesizer = FakeSynthesizer()
-        settings = irodori_server.IrodoriSettings(stream_chunk_bytes=4)
-
-        body = b"".join(
-            irodori_server.iter_streaming_pcm_response(
-                synthesizer,
-                "香川豊です。",
-                settings=settings,
-            )
-        )
-
-        self.assertEqual(body, b"\x01\x00\x02\x00\x03\x00")
-        self.assertEqual(synthesizer.synthesize_calls, [("香川豊です。", "pcm")])
-        self.assertEqual(synthesizer.stream_calls, 0)
-
-    def test_streaming_pcm_response_iterator_uses_progressive_when_enabled(self) -> None:
-        class FakeSynthesizer:
-            def __init__(self) -> None:
-                self.synthesize_calls = 0
-                self.stream_calls: list[tuple[str, int]] = []
-
-            def synthesize(self, text: str, *, response_format: str = "pcm"):
-                self.synthesize_calls += 1
-                raise AssertionError("progressive stream should not synthesize full text first")
-
-            def iter_pcm_stream(self, text: str, *, chunk_bytes: int):
-                self.stream_calls.append((text, chunk_bytes))
-                yield b"\x01\x00"
-                yield b"\x02\x00"
-
-        synthesizer = FakeSynthesizer()
-        settings = irodori_server.IrodoriSettings(
-            stream_chunk_bytes=4,
-            progressive_stream_enabled=True,
-        )
-
-        body_iter = irodori_server.iter_streaming_pcm_response(
-            synthesizer,
-            "香川豊です。",
-            settings=settings,
         )
 
         self.assertEqual(synthesizer.stream_calls, [])

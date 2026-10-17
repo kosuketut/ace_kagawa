@@ -8,12 +8,12 @@ Type=simple
 User=kyano
 Group=kyano
 WorkingDirectory=/home/kyano/workspace/ACE/ace_kagawa
-# TOKKIO_ELEVENLABS_API_KEY and TOKKIO_ELEVENLABS_VOICE_ID come from the untracked Tokkio .env.
+# TOKKIO_ELEVENLABS_API_KEY, _VOICE_ID and _MODEL_ID come from the untracked Tokkio .env.
+# Do not set their ELEVENLABS_* names here: those take precedence and would hide the .env values.
 EnvironmentFile=/home/kyano/workspace/ACE/ace_kagawa/infra/tokkio/.env
 Environment=ELEVENLABS_TTS_HOST=0.0.0.0
 Environment=ELEVENLABS_TTS_PORT=8022
 Environment=ELEVENLABS_TTS_VOICE=kagawa
-Environment=ELEVENLABS_TTS_MODEL_ID=eleven_v4_turbo
 Environment=ELEVENLABS_TTS_LANGUAGE_CODE=ja
 Environment=ELEVENLABS_TTS_SAMPLE_RATE_HZ=16000
 ExecStart=/home/kyano/workspace/ACE/ace_kagawa/Irodori-TTS/.venv/bin/python /home/kyano/workspace/ACE/ace_kagawa/infra/tts/elevenlabs_server.py
